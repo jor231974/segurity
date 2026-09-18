@@ -1,0 +1,1212 @@
+// Prisma schema — Sistema Integral de Seguridad Privada
+// PostgreSQL + multiempresa (companyId) + auditoría
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============ EMPRESA Y CONFIGURACIÓN (BLOQUE 1) ============
+
+model Company {
+  id                String      @id @default(uuid()) @db.Uuid
+  legalName         String
+  commercialName    String
+  rfc               String?
+  address           String
+  phone             String?
+  email             String?
+  logoUrl           String?
+  timezone          String      @default("America/Mexico_City")
+  currency          String      @default("MXN")
+  operationalParams Json?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  branches          Branch[]
+  zones             Zone[]
+  departments       Department[]
+  settings          SystemSetting[]
+  users             User[]
+  clients           Client[]
+  guards            Guard[]
+  vehicles          Vehicle[]
+  inventoryItems    InventoryItem[]
+  incidentTypes     IncidentType[]
+  contracts         Contract[]
+  incidents         Incident[]
+  sosAlerts         SosAlert[]
+  supervisionVisits SupervisionVisit[]
+  videoStreams      VideoStream[]
+  videoRecordings   VideoRecording[]
+  prePayrolls       PrePayroll[]
+  invoices          Invoice[]
+  clientRequests    ClientRequest[]
+  reports           Report[]
+
+  @@map("companies")
+}
+
+model Branch {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @db.Uuid
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name        String
+  address     String
+  phone       String?
+  contactName String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([companyId])
+  @@map("branches")
+}
+
+model Zone {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @db.Uuid
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  description String?
+
+  guards    Guard[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@map("zones")
+}
+
+model Department {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @db.Uuid
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([companyId])
+  @@map("departments")
+}
+
+model SystemSetting {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @db.Uuid
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  key       String
+  value     Json
+  description String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, key])
+  @@index([companyId])
+  @@map("system_settings")
+}
+
+// ============ USUARIOS, ROLES Y PERMISOS (BLOQUE 2) ============
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  companyId    String?   @db.Uuid
+  company      Company?  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  email        String    @unique
+  passwordHash String
+  name         String
+  lastName     String
+  phone        String?
+  active       Boolean   @default(true)
+  mustChangePassword Boolean @default(false)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  userRoles    UserRole[]
+  sessions     Session[]
+  loginHistory LoginHistory[]
+  passwordResets PasswordResetToken[]
+  guard        Guard?
+  clientUser   ClientUser?
+  authoredConsigns Consign[]
+  changedConsigns  ConsignHistory[]
+  supervisedIncidents Incident[]        @relation("Supervisor")
+  incidentActions IncidentAction[]
+  handledSosAlerts SosAlert[]          @relation("SosHandler")
+  supervisionVisits SupervisionVisit[] @relation("SupervisionSupervisor")
+  videoDownloads   VideoDownloadLog[]
+  registeredVisitors Visitor[]
+  generatedPrePayrolls PrePayroll[]
+  receivedPayments Payment[]
+  requestedClientRequests ClientRequest[] @relation("ClientRequestRequester")
+  assignedClientRequests ClientRequest[]  @relation("ClientRequestAssignee")
+  notifications Notification[]
+  generatedReports Report[]
+  auditLogs      AuditLog[]
+
+  @@index([companyId])
+  @@map("users")
+}
+
+model Role {
+  id        String   @id @default(uuid()) @db.Uuid
+  code      String   @unique
+  name      String
+  description String?
+  isSystem  Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userRoles UserRole[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  description String?
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String     @db.Uuid
+  permissionId String     @db.Uuid
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  roleId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+model Session {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  ip        String?
+  userAgent String?
+  device    String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model LoginHistory {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email     String
+  success   Boolean  @default(true)
+  ip        String?
+  userAgent String?
+  failureReason String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("login_history")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  usedAt    DateTime?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// ============ CLIENTES (BLOQUE 3) ============
+
+model Client {
+  id           String    @id @default(uuid()) @db.Uuid
+  companyId    String    @db.Uuid
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  legalName    String
+  commercialName String
+  rfc          String?
+  email        String?
+  phone        String?
+  address      String
+  taxData      Json?
+  commercialTerms String?
+  notes        String?
+  status       String    @default("activo") // activo, inactivo, suspendido
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  contacts     ClientContact[]
+  contracts    Contract[]
+  sites        Site[]
+  clientUsers  ClientUser[]
+  requests     ClientRequest[]
+  invoices     Invoice[]           @relation("InvoiceClient")
+
+  @@index([companyId])
+  @@index([status])
+  @@map("clients")
+}
+
+model ClientContact {
+  id        String   @id @default(uuid()) @db.Uuid
+  clientId  String   @db.Uuid
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name      String
+  position  String?
+  phone     String?
+  email     String?
+  isPrimary Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId])
+  @@map("client_contacts")
+}
+
+model ClientUser {
+  id        String   @id @default(uuid()) @db.Uuid
+  clientId String   @db.Uuid
+  client   Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  userId   String   @unique @db.Uuid
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([clientId, userId])
+  @@index([userId])
+  @@map("client_users")
+}
+
+// ============ CONTRATOS Y SERVICIOS (BLOQUE 4) ============
+
+model Contract {
+  id          String    @id @default(uuid()) @db.Uuid
+  companyId   String    @db.Uuid
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  clientId    String    @db.Uuid
+  client      Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  number      String
+  startDate   DateTime
+  endDate     DateTime
+  autoRenew   Boolean   @default(true)
+  terms       String?
+  billingFrequency String @default("mensual") // semanal, quincenal, mensual
+  status      String    @default("activo") // activo, suspendido, cerrado
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  services    ContractService[]
+  invoices    Invoice[]
+  prepayrolls PrePayroll[]
+
+  @@index([companyId])
+  @@index([clientId])
+  @@unique([companyId, number])
+  @@map("contracts")
+}
+
+model ContractService {
+  id            String    @id @default(uuid()) @db.Uuid
+  contractId    String    @db.Uuid
+  contract      Contract  @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  siteId        String?   @db.Uuid
+  site          Site?     @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  name          String
+  guardCount    Int       @default(1)
+  tariff        Decimal   @db.Decimal(12, 2)
+  estimatedCost Decimal?  @db.Decimal(12, 2)
+  startDate     DateTime
+  endDate       DateTime?
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  shifts        Shift[]
+  invoices      Invoice[]
+  prepayrollLines PrePayrollLine[]
+
+  @@index([contractId])
+  @@index([siteId])
+  @@map("contract_services")
+}
+
+// ============ INSTALACIONES, PUESTOS, CONSIGNAS (BLOQUE 5) ============
+
+model Site {
+  id                 String    @id @default(uuid()) @db.Uuid
+  clientId           String    @db.Uuid
+  client             Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name               String
+  address            String
+  latitude           Float?
+  longitude          Float?
+  geofenceRadiusMeters Int     @default(100)
+  contactName        String?
+  contactPhone       String?
+  schedule           String?
+  instructions       String?
+  deletedAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  posts              Post[]
+  services           ContractService[]
+  visitors           Visitor[]
+  patrolRoutes       PatrolRoute[]
+
+  @@index([clientId])
+  @@map("sites")
+}
+
+model Post {
+  id        String   @id @default(uuid()) @db.Uuid
+  siteId    String   @db.Uuid
+  site      Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  name      String
+  shiftStart String
+  shiftEnd  String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  consigns  Consign[]
+  shifts    Shift[]
+  patrolRoutes PatrolRoute[]
+  attendances Attendance[]
+  logbookEntries LogbookEntry[]
+  supervisionVisits SupervisionVisit[]
+
+  @@index([siteId])
+  @@map("posts")
+}
+
+model Consign {
+  id        String     @id @default(uuid()) @db.Uuid
+  postId    String     @db.Uuid
+  post      Post       @relation(fields: [postId], references: [id], onDelete: Cascade)
+  title     String
+  content   String
+  version   String     @default("1.0")
+  authorId  String     @db.Uuid
+  author    User       @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  status    String     @default("activo") // activo, archivado
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  acks      ConsignAck[]
+  history   ConsignHistory[]
+
+  @@index([postId])
+  @@map("consigns")
+}
+
+model ConsignHistory {
+  id        String   @id @default(uuid()) @db.Uuid
+  consignId String   @db.Uuid
+  consign   Consign  @relation(fields: [consignId], references: [id], onDelete: Cascade)
+  version   String
+  content   String
+  changedAt DateTime @default(now())
+  changedById String @db.Uuid
+  changedBy User     @relation(fields: [changedById], references: [id], onDelete: Restrict)
+
+  @@index([consignId])
+  @@map("consign_history")
+}
+
+model ConsignAck {
+  id        String   @id @default(uuid()) @db.Uuid
+  consignId String   @db.Uuid
+  consign   Consign  @relation(fields: [consignId], references: [id], onDelete: Cascade)
+  guardId   String   @db.Uuid
+  guard     Guard    @relation(fields: [guardId], references: [id], onDelete: Cascade)
+  ackedAt   DateTime @default(now())
+
+  @@unique([consignId, guardId])
+  @@index([guardId])
+  @@map("consign_acks")
+}
+
+// ============ GUARDIAS (BLOQUE 6) ============
+
+model Guard {
+  id           String    @id @default(uuid()) @db.Uuid
+  companyId    String    @db.Uuid
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employeeNumber String   @unique
+  userId       String?   @unique @db.Uuid
+  user         User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  firstName    String
+  middleName   String?
+  lastName     String
+  secondLastName String?
+  photoUrl     String?
+  curp         String?
+  rfc          String?
+  nss          String?
+  phone        String
+  email        String?
+  address      String
+  emergencyContactName String?
+  emergencyContactPhone String?
+  hireDate     DateTime
+  status       String    @default("disponible") // activo, suspendido, vacaciones, baja, incapacidad, disponible, asignado
+  zoneId       String?   @db.Uuid
+  zone         Zone?     @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  supervisorId String?   @db.Uuid
+  supervisor   Guard?    @relation("GuardSupervisor", fields: [supervisorId], references: [id], onDelete: SetNull)
+  subGuards    Guard[]   @relation("GuardSupervisor")
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  documents    GuardDocument[]
+  trainings    Training[]
+  ackedConsigns ConsignAck[]
+  shifts       Shift[]
+  attendances  Attendance[]
+  gpsLogs      GpsLog[]
+  patrolChecks PatrolCheckIn[]
+  logbookEntries LogbookEntry[]
+  incidents    Incident[]
+  sosAlerts    SosAlert[]
+  supervisionVisits SupervisionVisit[]
+  videoStreams VideoStream[]
+  videoRecordings VideoRecording[]
+  visitors     Visitor[]
+  vehicles     Vehicle[]
+  inventoryAssignments InventoryAssignment[]
+  prepayrollLines PrePayrollLine[]
+
+  @@index([companyId])
+  @@index([zoneId])
+  @@index([supervisorId])
+  @@index([status])
+  @@map("guards")
+}
+
+model GuardDocument {
+  id           String    @id @default(uuid()) @db.Uuid
+  guardId      String    @db.Uuid
+  guard        Guard     @relation(fields: [guardId], references: [id], onDelete: Cascade)
+  type         String
+  documentDate DateTime
+  expirationDate DateTime?
+  fileUrl      String?
+  status       String    @default("vigente") // vigente, vencido, revisión
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([guardId])
+  @@index([expirationDate])
+  @@map("guard_documents")
+}
+
+// ============ CAPACITACIÓN (BLOQUE 7) ============
+
+model Training {
+  id             String    @id @default(uuid()) @db.Uuid
+  guardId        String    @db.Uuid
+  guard          Guard     @relation(fields: [guardId], references: [id], onDelete: Cascade)
+  courseName     String
+  instructor     String
+  trainingDate   DateTime
+  durationHours  Float
+  result         String    @default("en_curso") // aprobado, reprobado, en_curso
+  score          Float?
+  certificateUrl String?
+  expirationDate DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([guardId])
+  @@index([expirationDate])
+  @@map("trainings")
+}
+
+// ============ TURNOS (BLOQUE 8) ============
+
+model Shift {
+  id        String    @id @default(uuid()) @db.Uuid
+  guardId   String    @db.Uuid
+  guard     Guard     @relation(fields: [guardId], references: [id], onDelete: Cascade)
+  postId    String    @db.Uuid
+  post      Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  serviceId String?   @db.Uuid
+  service   ContractService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  date      DateTime  @db.Date
+  startTime String
+  endTime   String
+  status    String    @default("programado") // programado, activo, completado, cancelado
+  notes     String?
+  replacementOf String? @db.Uuid // shift id reemplazado
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  attendances Attendance[]
+  logbookEntries LogbookEntry[]
+  incidents  Incident[]
+  videoStreams VideoStream[]
+  videoRecordings VideoRecording[]
+  prepayrollLines PrePayrollLine[]
+
+  @@index([guardId])
+  @@index([postId])
+  @@index([date])
+  @@map("shifts")
+}
+
+// ============ ASISTENCIA, GPS (BLOQUE 9) ============
+
+model Attendance {
+  id          String    @id @default(uuid()) @db.Uuid
+  guardId     String    @db.Uuid
+  guard       Guard     @relation(fields: [guardId], references: [id], onDelete: Cascade)
+  shiftId     String?   @db.Uuid
+  shift       Shift?    @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  postId      String?   @db.Uuid
+  post        Post?     @relation(fields: [postId], references: [id], onDelete: SetNull)
+  serviceId   String?   @db.Uuid
+  type        String    // entrada, salida
+  timestamp   DateTime  @default(now())
+  latitude    Float?
+  longitude   Float?
+  device      String?
+  distanceFromSite Float?
+  geofenceResult String? // dentro, fuera
+  status      String?   // ok, fuera_de_horario, salida_anticipada, fuera_de_geocerca
+  synced      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  @@index([guardId])
+  @@index([shiftId])
+  @@index([timestamp])
+  @@map("attendances")
+}
+
+model GpsLog {
+  id       String   @id @default(uuid()) @db.Uuid
+  guardId  String   @db.Uuid
+  guard    Guard    @relation(fields: [guardId], references: [id], onDelete: Cascade)
+  latitude Float
+  longitude Float
+  accuracy   Float?
+  device     String?
+  timestamp  DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([guardId, timestamp])
+  @@index([timestamp])
+  @@map("gps_logs")
+}
+
+// ============ RONDINES (BLOQUE 10) ============
+
+model PatrolRoute {
+  id        String   @id @default(uuid()) @db.Uuid
+  siteId    String   @db.Uuid
+  site      Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  postId    String?  @db.Uuid
+  post      Post?    @relation(fields: [postId], references: [id], onDelete: SetNull)
+  name      String
+  schedule  String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  checkpoints PatrolCheckpoint[]
+
+  @@index([siteId])
+  @@map("patrol_routes")
+}
+
+model PatrolCheckpoint {
+  id         String   @id @default(uuid()) @db.Uuid
+  routeId    String   @db.Uuid
+  route      PatrolRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  name       String
+  sequence   Int
+  latitude   Float?
+  longitude  Float?
+
+  checkIns   PatrolCheckIn[]
+
+  @@index([routeId])
+  @@map("patrol_checkpoints")
+}
+
+model PatrolCheckIn {
+  id           String   @id @default(uuid()) @db.Uuid
+  checkpointId String   @db.Uuid
+  checkpoint   PatrolCheckpoint @relation(fields: [checkpointId], references: [id], onDelete: Cascade)
+  guardId      String   @db.Uuid
+  guard        Guard    @relation(fields: [guardId], references: [id], onDelete: Cascade)
+  shiftId      String?  @db.Uuid
+  timestamp    DateTime @default(now())
+  latitude     Float?
+  longitude    Float?
+  method       String   @default("gps") // gps, qr, nfc
+  result       String   @default("ok") // ok, fuera_de_ruta, retrasado
+  photoUrl     String?
+  notes        String?
+  synced       Boolean  @default(true)
+
+  @@index([checkpointId])
+  @@index([guardId])
+  @@index([timestamp])
+  @@map("patrol_check_ins")
+}
+
+// ============ BITÁCORA (BLOQUE 11) ============
+
+model LogbookEntry {
+  id          String   @id @default(uuid()) @db.Uuid
+  guardId     String   @db.Uuid
+  guard       Guard    @relation(fields: [guardId], references: [id], onDelete: Cascade)
+  postId      String?  @db.Uuid
+  post        Post?    @relation(fields: [postId], references: [id], onDelete: SetNull)
+  shiftId     String?  @db.Uuid
+  shift       Shift?   @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  description String
+  latitude    Float?
+  longitude   Float?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  synced      Boolean  @default(true)
+
+  files       LogbookFile[]
+
+  @@index([guardId])
+  @@index([postId])
+  @@index([createdAt])
+  @@map("logbook_entries")
+}
+
+model LogbookFile {
+  id       String       @id @default(uuid()) @db.Uuid
+  entryId  String       @db.Uuid
+  entry    LogbookEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  url      String
+  mimeType String
+  size     Int
+
+  @@index([entryId])
+  @@map("logbook_files")
+}
+
+// ============ INCIDENCIAS (BLOQUE 12) ============
+
+model IncidentType {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @db.Uuid
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  color     String?  @default("#ef4444")
+
+  incidents Incident[]
+
+  @@unique([companyId, name])
+  @@map("incident_types")
+}
+
+model Incident {
+  id           String    @id @default(uuid()) @db.Uuid
+  companyId    String    @db.Uuid
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  typeId       String?   @db.Uuid
+  type         IncidentType? @relation(fields: [typeId], references: [id], onDelete: SetNull)
+  typeName     String
+  severity     String    // baja, media, alta, critica
+  status       String    @default("abierta") // abierta, atendida, en_investigacion, cerrada
+  description  String
+  reporterId   String    @db.Uuid
+  reporter     Guard     @relation(fields: [reporterId], references: [id], onDelete: Restrict)
+  guardId      String?   @db.Uuid
+  shiftId      String?   @db.Uuid
+  shift        Shift?    @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  latitude     Float?
+  longitude    Float?
+  involvedPersons String?
+  witnesses    String?
+  actionsTaken String?
+  supervisorId String?   @db.Uuid
+  supervisor   User?     @relation("Supervisor", fields: [supervisorId], references: [id], onDelete: SetNull)
+  closedById   String?   @db.Uuid
+  closedAt     DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  synced       Boolean   @default(true)
+
+  files        IncidentFile[]
+  videos       VideoRecording[]
+  actions      IncidentAction[]
+
+  @@index([companyId])
+  @@index([status])
+  @@index([severity])
+  @@index([createdAt])
+  @@map("incidents")
+}
+
+model IncidentAction {
+  id         String   @id @default(uuid()) @db.Uuid
+  incidentId String   @db.Uuid
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  description String
+  performedById String @db.Uuid
+  performedBy User    @relation(fields: [performedById], references: [id], onDelete: Restrict)
+  createdAt  DateTime @default(now())
+
+  @@index([incidentId])
+  @@map("incident_actions")
+}
+
+model IncidentFile {
+  id         String   @id @default(uuid()) @db.Uuid
+  incidentId String   @db.Uuid
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  url        String
+  mimeType   String
+  size       Int
+
+  @@index([incidentId])
+  @@map("incident_files")
+}
+
+// ============ SOS (BLOQUE 13) ============
+
+model SosAlert {
+  id        String    @id @default(uuid()) @db.Uuid
+  companyId String    @db.Uuid
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  guardId   String    @db.Uuid
+  guard     Guard     @relation(fields: [guardId], references: [id], onDelete: Cascade)
+  shiftId   String?   @db.Uuid
+  serviceId String?   @db.Uuid
+  latitude  Float
+  longitude Float
+  message   String?
+  status    String    @default("activa") // activa, atendida, cerrada
+  handledById String? @db.Uuid
+  handledBy User?     @relation("SosHandler", fields: [handledById], references: [id], onDelete: SetNull)
+  handledAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  synced    Boolean   @default(true)
+
+  @@index([companyId])
+  @@index([guardId])
+  @@index([status])
+  @@map("sos_alerts")
+}
+
+// ============ SUPERVISIÓN (BLOQUE 14) ============
+
+model SupervisionVisit {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @db.Uuid
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  supervisorId String  @db.Uuid
+  supervisor  User     @relation("SupervisionSupervisor", fields: [supervisorId], references: [id], onDelete: Restrict)
+  guardId     String   @db.Uuid
+  guard       Guard    @relation(fields: [guardId], references: [id], onDelete: Cascade)
+  postId      String?  @db.Uuid
+  post        Post?    @relation(fields: [postId], references: [id], onDelete: SetNull)
+  checklist   Json
+  observations String?
+  latitude    Float?
+  longitude   Float?
+  photoUrl    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([guardId])
+  @@index([supervisorId])
+  @@map("supervision_visits")
+}
+
+// ============ VIDEO (BLOQUE 15) ============
+
+model VideoStream {
+  id         String    @id @default(uuid()) @db.Uuid
+  companyId  String    @db.Uuid
+  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  guardId    String    @db.Uuid
+  guard      Guard     @relation(fields: [guardId], references: [id], onDelete: Cascade)
+  shiftId    String?   @db.Uuid
+  shift      Shift?    @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  serviceId  String?   @db.Uuid
+  latitude   Float?
+  longitude  Float?
+  status     String    @default("iniciada") // iniciada, transmitiendo, finalizada, fallida
+  startedAt  DateTime  @default(now())
+  endedAt    DateTime?
+  viewerCount Int      @default(0)
+
+  recording  VideoRecording?
+  downloads  VideoDownloadLog[]
+
+  @@index([companyId])
+  @@index([guardId])
+  @@index([status])
+  @@map("video_streams")
+}
+
+model VideoRecording {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @db.Uuid
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  streamId     String   @unique @db.Uuid
+  stream       VideoStream @relation(fields: [streamId], references: [id], onDelete: Cascade)
+  guardId      String   @db.Uuid
+  guard        Guard    @relation(fields: [guardId], references: [id], onDelete: Cascade)
+  shiftId      String?  @db.Uuid
+  shift        Shift?   @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  incidentId   String?  @db.Uuid
+  incident     Incident? @relation(fields: [incidentId], references: [id], onDelete: SetNull)
+  filePath     String
+  sizeBytes    BigInt
+  format       String   @default("webm")
+  durationSec  Int
+  resolution   String?
+  latitude     Float?
+  longitude    Float?
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+  deletedAt    DateTime?
+
+  downloads    VideoDownloadLog[]
+
+  @@index([companyId])
+  @@index([guardId])
+  @@index([incidentId])
+  @@index([expiresAt])
+  @@map("video_recordings")
+}
+
+model VideoDownloadLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  videoId      String   @db.Uuid
+  video        VideoRecording @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  streamId     String?  @db.Uuid
+  stream       VideoStream? @relation(fields: [streamId], references: [id], onDelete: SetNull)
+  userId       String   @db.Uuid
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reason       String?
+  downloadedAt DateTime @default(now())
+
+  @@index([videoId])
+  @@index([userId])
+  @@map("video_download_logs")
+}
+
+// ============ VISITANTES (BLOQUE 16) ============
+
+model Visitor {
+  id           String    @id @default(uuid()) @db.Uuid
+  siteId       String    @db.Uuid
+  site         Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  fullName     String
+  identification String?
+  companyName  String?
+  personVisited String
+  vehiclePlate String?
+  photoUrl     String?
+  notes        String?
+  registeredById String? @db.Uuid
+  registeredBy User?     @relation(fields: [registeredById], references: [id], onDelete: SetNull)
+  guardId      String?   @db.Uuid
+  guard        Guard?    @relation(fields: [guardId], references: [id], onDelete: SetNull)
+  entryAt      DateTime  @default(now())
+  exitAt       DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([siteId])
+  @@index([exitAt])
+  @@map("visitors")
+}
+
+// ============ VEHÍCULOS (BLOQUE 17) ============
+
+model Vehicle {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @db.Uuid
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  brand        String
+  model        String
+  year         Int?
+  plates       String
+  vin          String?
+  insuranceExpiration DateTime?
+  currentMileage Int?
+  responsibleGuardId String? @db.Uuid
+  responsibleGuard Guard?   @relation(fields: [responsibleGuardId], references: [id], onDelete: SetNull)
+  notes        String?
+  deletedAt    DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([responsibleGuardId])
+  @@map("vehicles")
+}
+
+// ============ EQUIPO / INVENTARIO (BLOQUE 18) ============
+
+model InventoryItem {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @db.Uuid
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  type        String   // radio, uniforme, chaleco, lámpara, detector, celular, cámara, otro
+  serialNumber String
+  brand       String?
+  status      String   @default("disponible") // disponible, asignado, en_mantenimiento, baja
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  assignments InventoryAssignment[]
+
+  @@unique([companyId, serialNumber])
+  @@index([companyId])
+  @@map("inventory_items")
+}
+
+model InventoryAssignment {
+  id           String   @id @default(uuid()) @db.Uuid
+  itemId       String   @db.Uuid
+  item         InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  guardId      String?  @db.Uuid
+  guard        Guard?   @relation(fields: [guardId], references: [id], onDelete: SetNull)
+  assignedDate DateTime
+  returnedDate DateTime?
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  @@index([itemId])
+  @@index([guardId])
+  @@map("inventory_assignments")
+}
+
+// ============ PRE-NÓMINA (BLOQUE 19) ============
+
+model PrePayroll {
+  id        String    @id @default(uuid()) @db.Uuid
+  companyId String    @db.Uuid
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contractId String?  @db.Uuid
+  contract  Contract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  periodStart DateTime
+  periodEnd   DateTime
+  status      String   @default("borrador") // borrador, calculada, revisada, aprobada, exportada
+  generatedById String @db.Uuid
+  generatedBy  User     @relation(fields: [generatedById], references: [id], onDelete: Restrict)
+  totalAmount  Decimal? @db.Decimal(12, 2)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  lines        PrePayrollLine[]
+
+  @@index([companyId])
+  @@index([periodStart, periodEnd])
+  @@map("pre_payrolls")
+}
+
+model PrePayrollLine {
+  id          String     @id @default(uuid()) @db.Uuid
+  prepayrollId String    @db.Uuid
+  prepayroll   PrePayroll @relation(fields: [prepayrollId], references: [id], onDelete: Cascade)
+  guardId     String     @db.Uuid
+  guard       Guard      @relation(fields: [guardId], references: [id], onDelete: Cascade)
+  serviceId   String?    @db.Uuid
+  service     ContractService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  shiftId     String?    @db.Uuid
+  shift       Shift?     @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  workDays    Int        @default(0)
+  workHours   Float      @default(0)
+  overtimeHours Float     @default(0)
+  absences    Int        @default(0)
+  lateMinutes Int        @default(0)
+  baseAmount  Decimal    @default(0) @db.Decimal(12, 2)
+  overtimeAmount Decimal  @default(0) @db.Decimal(12, 2)
+  bonusAmount Decimal    @default(0) @db.Decimal(12, 2)
+  discountAmount Decimal @default(0) @db.Decimal(12, 2)
+  totalAmount Decimal    @default(0) @db.Decimal(12, 2)
+
+  @@index([prepayrollId])
+  @@index([guardId])
+  @@map("pre_payroll_lines")
+}
+
+// ============ FACTURACIÓN Y COBRANZA (BLOQUE 20) ============
+
+model Invoice {
+  id         String    @id @default(uuid()) @db.Uuid
+  companyId  String    @db.Uuid
+  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contractId String    @db.Uuid
+  contract   Contract  @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  serviceId  String?   @db.Uuid
+  service    ContractService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  clientId   String?   @db.Uuid
+  clientInline Client? @relation("InvoiceClient", fields: [clientId], references: [id], onDelete: SetNull)
+  number     String
+  periodStart DateTime
+  periodEnd   DateTime
+  dueDate     DateTime
+  amount      Decimal   @db.Decimal(12, 2)
+  paidAmount  Decimal   @default(0) @db.Decimal(12, 2)
+  status      String    @default("pendiente") // pendiente, parcialmente_pagada, pagada, vencida
+  notes       String?
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  payments    Payment[]
+
+  @@index([companyId])
+  @@index([contractId])
+  @@unique([companyId, number])
+  @@map("invoices")
+}
+
+model Payment {
+  id        String   @id @default(uuid()) @db.Uuid
+  invoiceId String   @db.Uuid
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amount    Decimal  @db.Decimal(12, 2)
+  method    String   @default("transferencia") // transferencia, cheque, efectivo, tarjeta, otro
+  reference String?
+  paymentDate DateTime @default(now())
+  receivedById String? @db.Uuid
+  receivedBy User?    @relation(fields: [receivedById], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+
+  @@index([invoiceId])
+  @@map("payments")
+}
+
+// ============ SOLICITUDES DEL CLIENTE (BLOQUE 21) ============
+
+model ClientRequest {
+  id         String    @id @default(uuid()) @db.Uuid
+  companyId  String    @db.Uuid
+  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  clientId   String    @db.Uuid
+  client     Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  requestedById String  @db.Uuid
+  requestedBy User     @relation("ClientRequestRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  type       String
+  priority   String    @default("media") // baja, media, alta, critica
+  description String
+  status     String    @default("abierta") // abierta, en_proceso, resuelta, cerrada
+  assignedToId String? @db.Uuid
+  assignedTo User?     @relation("ClientRequestAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  response   String?
+  completedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([companyId])
+  @@index([clientId])
+  @@index([status])
+  @@map("client_requests")
+}
+
+// ============ NOTIFICACIONES (BLOQUE 22) ============
+
+model Notification {
+  id        String    @id @default(uuid()) @db.Uuid
+  companyId String?   @db.Uuid
+  userId    String    @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// ============ REPORTES GUARDADOS (BLOQUE 23) ============
+
+model Report {
+  id        String    @id @default(uuid()) @db.Uuid
+  companyId String    @db.Uuid
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  type      String
+  filters   Json?
+  generatedById String @db.Uuid
+  generatedBy User   @relation(fields: [generatedById], references: [id], onDelete: Restrict)
+  fileUrl   String?
+  createdAt DateTime  @default(now())
+
+  @@index([companyId])
+  @@map("reports")
+}
+
+// ============ AUDITORÍA (BLOQUE 24) ============
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  companyId  String?  @db.Uuid
+  userId     String?  @db.Uuid
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  ip         String?
+  device     String?
+  module     String
+  action     String
+  entity     String?
+  entityId   String?
+  before     Json?
+  after      Json?
+  createdAt  DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([userId])
+  @@index([entity, entityId])
+  @@map("audit_logs")
+}

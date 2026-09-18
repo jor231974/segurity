@@ -1,0 +1,35 @@
+{
+  "name": "seguridad-system",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @servicom/shared && npm run build --workspace @servicom/api && npm run build --workspace @servicom/web",
+    "dev:api": "npm run start:dev --workspace @servicom/api",
+    "dev:web": "npm run dev --workspace @servicom/web",
+    "build:api": "npm run build --workspace @servicom/api",
+    "build:web": "npm run build --workspace @servicom/web",
+    "start:prod:api": "npm run start:prod --workspace @servicom/api",
+    "start:prod:web": "npm run start --workspace @servicom/web",
+    "db:deploy": "npm run prisma:deploy --workspace @servicom/api",
+    "db:migrate": "npm run prisma:migrate --workspace @servicom/api",
+    "db:generate": "npm run prisma:generate --workspace @servicom/api",
+    "db:seed": "npm run prisma:seed --workspace @servicom/api",
+    "db:studio": "npm run prisma:studio --workspace @servicom/api",
+    "test": "npm run test --workspace @servicom/api && npm run test --workspace @servicom/shared",
+    "test:api": "npm run test --workspace @servicom/api",
+    "lint": "npm run lint --workspace @servicom/api && npm run lint --workspace @servicom/web"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "allowScripts": {
+    "@nestjs/core@10.4.22": true,
+    "@prisma/client@5.22.0": true,
+    "@prisma/engines@5.22.0": true,
+    "prisma@5.22.0": true
+  }
+}
