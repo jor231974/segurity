@@ -43,6 +43,7 @@ model Company {
   supervisionVisits SupervisionVisit[]
   videoStreams      VideoStream[]
   videoRecordings   VideoRecording[]
+  videoAuditLogs    VideoAuditLog[]
   prePayrolls       PrePayroll[]
   invoices          Invoice[]
   clientRequests    ClientRequest[]
@@ -151,6 +152,8 @@ model User {
   notifications Notification[]
   generatedReports Report[]
   auditLogs      AuditLog[]
+  preservedVideos VideoRecording[] @relation("VideoEvidence")
+  videoAudits    VideoAuditLog[]
 
   @@index([companyId])
   @@map("users")
@@ -275,6 +278,8 @@ model Client {
   clientUsers  ClientUser[]
   requests     ClientRequest[]
   invoices     Invoice[]           @relation("InvoiceClient")
+  videoStreams VideoStream[]
+  videoRecordings VideoRecording[]
 
   @@index([companyId])
   @@index([status])
@@ -360,6 +365,8 @@ model ContractService {
   shifts        Shift[]
   invoices      Invoice[]
   prepayrollLines PrePayrollLine[]
+  videoStreams  VideoStream[]
+  videoRecordings VideoRecording[]
 
   @@index([contractId])
   @@index([siteId])
@@ -389,6 +396,8 @@ model Site {
   services           ContractService[]
   visitors           Visitor[]
   patrolRoutes       PatrolRoute[]
+  videoStreams       VideoStream[]
+  videoRecordings    VideoRecording[]
 
   @@index([clientId])
   @@map("sites")
@@ -411,6 +420,8 @@ model Post {
   attendances Attendance[]
   logbookEntries LogbookEntry[]
   supervisionVisits SupervisionVisit[]
+  videoStreams  VideoStream[]
+  videoRecordings VideoRecording[]
 
   @@index([siteId])
   @@map("posts")
@@ -866,60 +877,144 @@ model SupervisionVisit {
 // ============ VIDEO (BLOQUE 15) ============
 
 model VideoStream {
-  id         String    @id @default(uuid()) @db.Uuid
-  companyId  String    @db.Uuid
-  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  guardId    String    @db.Uuid
-  guard      Guard     @relation(fields: [guardId], references: [id], onDelete: Cascade)
-  shiftId    String?   @db.Uuid
-  shift      Shift?    @relation(fields: [shiftId], references: [id], onDelete: SetNull)
-  serviceId  String?   @db.Uuid
-  latitude   Float?
-  longitude  Float?
-  status     String    @default("iniciada") // iniciada, transmitiendo, finalizada, fallida
-  startedAt  DateTime  @default(now())
-  endedAt    DateTime?
-  viewerCount Int      @default(0)
+  id             String    @id @default(uuid()) @db.Uuid
+  companyId      String    @db.Uuid
+  company        Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  guardId        String    @db.Uuid
+  guard          Guard     @relation(fields: [guardId], references: [id], onDelete: Cascade)
+  shiftId        String?   @db.Uuid
+  shift          Shift?    @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  serviceId      String?   @db.Uuid
+  service        ContractService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  postId         String?   @db.Uuid
+  post           Post?     @relation(fields: [postId], references: [id], onDelete: SetNull)
+  siteId         String?   @db.Uuid
+  site           Site?     @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  clientId       String?   @db.Uuid
+  client         Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  latitude       Float?
+  longitude      Float?
+  status         String    @default("iniciada") // iniciada, transmitiendo, finalizada, fallida
+  // Configuración de captura del dispositivo
+  resolution      String?   // 1920x1080, 1280x720, 640x480
+  fps             Int?
+  bitrate         Int?      // kbps
+  audioEnabled    Boolean   @default(true)
+  platform        String?
+  deviceId        String?
+  maxDurationSec  Int?
+  // Estado de la transmisión
+  fragmentCount   Int       @default(0)
+  currentBytes    BigInt    @default(0)
+  lastFragmentAt  DateTime?
+  startedAt       DateTime  @default(now())
+  endedAt         DateTime?
+  viewerCount     Int       @default(0)
 
-  recording  VideoRecording?
-  downloads  VideoDownloadLog[]
+  recording       VideoRecording?
+  downloads       VideoDownloadLog[]
+  fragments       VideoFragment[]
+  audits          VideoAuditLog[]
 
   @@index([companyId])
   @@index([guardId])
   @@index([status])
+  @@index([lastFragmentAt])
   @@map("video_streams")
 }
 
-model VideoRecording {
-  id           String   @id @default(uuid()) @db.Uuid
-  companyId    String   @db.Uuid
-  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  streamId     String   @unique @db.Uuid
-  stream       VideoStream @relation(fields: [streamId], references: [id], onDelete: Cascade)
-  guardId      String   @db.Uuid
-  guard        Guard    @relation(fields: [guardId], references: [id], onDelete: Cascade)
-  shiftId      String?  @db.Uuid
-  shift        Shift?   @relation(fields: [shiftId], references: [id], onDelete: SetNull)
-  incidentId   String?  @db.Uuid
-  incident     Incident? @relation(fields: [incidentId], references: [id], onDelete: SetNull)
-  filePath     String
-  sizeBytes    BigInt
-  format       String   @default("webm")
-  durationSec  Int
-  resolution   String?
-  latitude     Float?
-  longitude    Float?
-  createdAt    DateTime @default(now())
-  expiresAt    DateTime
-  deletedAt    DateTime?
+model VideoFragment {
+  id          String   @id @default(uuid()) @db.Uuid
+  streamId    String   @db.Uuid
+  stream      VideoStream @relation(fields: [streamId], references: [id], onDelete: Cascade)
+  recordingId String?  @db.Uuid
+  recording   VideoRecording? @relation(fields: [recordingId], references: [id], onDelete: SetNull)
+  sequence    Int
+  sizeBytes   BigInt
+  objectKey   String
+  createdAt   DateTime @default(now())
 
-  downloads    VideoDownloadLog[]
+  @@unique([streamId, sequence])
+  @@index([recordingId])
+  @@map("video_fragments")
+}
+
+model VideoRecording {
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String   @db.Uuid
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  streamId      String   @unique @db.Uuid
+  stream        VideoStream @relation(fields: [streamId], references: [id], onDelete: Cascade)
+  guardId       String   @db.Uuid
+  guard         Guard    @relation(fields: [guardId], references: [id], onDelete: Cascade)
+  shiftId       String?  @db.Uuid
+  shift         Shift?   @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  serviceId     String?  @db.Uuid
+  service       ContractService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  postId        String?  @db.Uuid
+  post          Post?    @relation(fields: [postId], references: [id], onDelete: SetNull)
+  siteId        String?  @db.Uuid
+  site          Site?    @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  clientId      String?  @db.Uuid
+  client        Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  incidentId    String?  @db.Uuid
+  incident      Incident? @relation(fields: [incidentId], references: [id], onDelete: SetNull)
+  filePath      String
+  objectKey     String
+  sizeBytes     BigInt
+  fragmentCount Int      @default(0)
+  format        String   @default("webm")
+  durationSec   Int
+  resolution    String?
+  fps           Int?
+  bitrate       Int?
+  audioEnabled  Boolean  @default(true)
+  latitude      Float?
+  longitude     Float?
+  retentionPolicy String @default("temporal") // temporal, evidencia
+  evidenceReason  String?
+  evidenceById    String?  @db.Uuid
+  evidenceBy      User?    @relation("VideoEvidence", fields: [evidenceById], references: [id], onDelete: SetNull)
+  evidenceAt      DateTime?
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime?
+  deletedAt     DateTime?
+
+  downloads     VideoDownloadLog[]
+  fragments     VideoFragment[]
+  audits        VideoAuditLog[]
 
   @@index([companyId])
   @@index([guardId])
   @@index([incidentId])
+  @@index([siteId])
+  @@index([clientId])
   @@index([expiresAt])
+  @@index([retentionPolicy])
   @@map("video_recordings")
+}
+
+model VideoAuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @db.Uuid
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  videoId     String?  @db.Uuid
+  video       VideoRecording? @relation(fields: [videoId], references: [id], onDelete: SetNull)
+  streamId    String?  @db.Uuid
+  stream      VideoStream? @relation(fields: [streamId], references: [id], onDelete: SetNull)
+  userId      String?  @db.Uuid
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action      String   // stream.start, stream.end, live.view, recording.view, recording.download, recording.download_url, evidence.preserve, recording.delete, automatic.expire
+  ip          String?
+  device      String?
+  detail      Json?
+  createdAt   DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([videoId])
+  @@index([streamId])
+  @@index([userId])
+  @@map("video_audit_logs")
 }
 
 model VideoDownloadLog {

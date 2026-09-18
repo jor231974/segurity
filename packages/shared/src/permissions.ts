@@ -82,6 +82,7 @@ export const PERMISSIONS = {
   VIDEO_RECORDING_VIEW: 'video.recording.view',
   VIDEO_RECORDING_DOWNLOAD: 'video.recording.download',
   VIDEO_RECORDING_DELETE: 'video.recording.delete',
+  VIDEO_EVIDENCE_PRESERVE: 'video.evidence.preserve',
 
   VISITORS_VIEW: 'visitors.view',
   VISITORS_CREATE: 'visitors.create',

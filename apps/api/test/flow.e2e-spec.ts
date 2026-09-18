@@ -226,27 +226,64 @@ describe('BLOQUE 22 — Flujo integral completo (E2E contra API real)', () => {
     expect(dataOf(me)?.id).toBe(ids.guardId);
   });
 
-  test('E. Video real: transmisión, chunks y grabación con expiración (48 h)', async () => {
-    const start = await guardApi.post('/video/streams', {});
+  test('E. Video real: configuración, fragmentos, manifest, grabación, URL firmada, evidencia y auditoría', async () => {
+    const cfg = await guardApi.get('/video/config');
+    expect([200, 201]).toContain(cfg.status);
+    expect(dataOf(cfg)?.resolution).toBeTruthy();
+
+    const start = await guardApi.post('/video/streams', { resolution: '640x480', fps: 15, bitrate: 700, audioEnabled: true, platform: 'e2e' });
     expect([200, 201]).toContain(start.status);
     const streamId = dataOf(start)?.id;
     expect(streamId).toBeTruthy();
 
-    const chunk = await guardApi.req('POST', `/video/streams/${streamId}/chunk`, Buffer.alloc(4096, 7), true);
-    expect([200, 201]).toContain(chunk.status);
-    expect(Number(dataOf(chunk)?.totalBytes ?? 0)).toBeGreaterThan(0);
+    // Tres fragmentos numerados (idempotencia: reenviar el mismo seq no duplica)
+    const frag1 = await guardApi.req('POST', `/video/streams/${streamId}/fragments?seq=0`, Buffer.alloc(4096, 7), true);
+    expect([200, 201]).toContain(frag1.status);
+    expect(dataOf(frag1)?.sequence).toBe(0);
+    const frag1b = await guardApi.req('POST', `/video/streams/${streamId}/fragments?seq=0`, Buffer.alloc(4096, 7), true);
+    expect([200, 201]).toContain(frag1b.status);
+    expect(dataOf(frag1b)?.duplicate).toBe(true);
+    await guardApi.req('POST', `/video/streams/${streamId}/fragments?seq=1`, Buffer.alloc(4096, 7), true);
+    await guardApi.req('POST', `/video/streams/${streamId}/fragments?seq=2`, Buffer.alloc(4096, 7), true);
+
+    // Manifest para el reproductor en vivo (permiso live.view)
+    const man = await adminApi.get(`/video/streams/${streamId}/manifest`);
+    expect([200, 201]).toContain(man.status);
+    expect((dataOf(man)?.fragments ?? []).length).toBe(3);
 
     const end = await guardApi.put(`/video/streams/${streamId}/end`, {});
     expect([200, 201]).toContain(end.status);
     const recording = dataOf(end)?.recording ?? dataOf(end);
     ids.recordingId = recording?.id;
     expect(ids.recordingId).toBeTruthy();
-    expect(Number(recording?.sizeBytes ?? 0)).toBe(4096);
+    expect(Number(recording?.sizeBytes ?? 0)).toBe(4096 * 3);
+    expect(recording?.fragmentCount ?? 0).toBe(3);
 
     const list = await adminApi.get('/video/recordings');
     expect(list.status).toBe(200);
     const found = Array.isArray(dataOf(list)) && dataOf(list).some((r: any) => r.id === ids.recordingId);
     expect(found).toBe(true);
+
+    // URL temporal firmada: se genera y se consume sin sesión
+    const signed = await adminApi.get(`/video/recordings/${ids.recordingId}/download-url`);
+    expect([200, 201]).toContain(signed.status);
+    const signedPath = dataOf(signed)?.url;
+    expect(typeof signedPath).toBe('string');
+
+    // Auditoría de la grabación
+    const audit = await adminApi.get(`/video/recordings/${ids.recordingId}/audit`);
+    expect([200, 201]).toContain(audit.status);
+    expect(Array.isArray(dataOf(audit))).toBe(true);
+
+    // Conservar como evidencia (sin expiración)
+    const preserve = await adminApi.put(`/video/recordings/${ids.recordingId}/preserve`, { reason: 'E2E: prueba de conservación de evidencia' });
+    expect([200, 201]).toContain(preserve.status);
+    expect(dataOf(preserve)?.retentionPolicy).toBe('evidencia');
+    expect(dataOf(preserve)?.expiresAt).toBeNull();
+
+    const listAfterPreserve = await adminApi.get('/video/recordings?retention=evidencia');
+    const preservedFound = Array.isArray(dataOf(listAfterPreserve)) && dataOf(listAfterPreserve).some((r: any) => r.id === ids.recordingId);
+    expect(preservedFound).toBe(true);
 
     const del = await adminApi.put(`/video/recordings/${ids.recordingId}/delete`, {});
     expect([200, 201, 204]).toContain(del.status);
