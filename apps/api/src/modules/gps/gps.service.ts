@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, ForbiddenException, NotFoundException 
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthUser } from '../../common/decorators/current-user.decorator';
 import { haversineDistanceKm } from '../../common/utils/geo';
+import { findCurrentShift } from '../../common/utils/shift';
 
 @Injectable()
 export class GpsService {
@@ -34,16 +35,7 @@ export class GpsService {
     });
 
     // Evaluar geocerca del puesto actual
-    const now = new Date();
-    const todayStr = now.toISOString().slice(0, 10);
-    const shift = await this.prisma.shift.findFirst({
-      where: {
-        guardId: user.guardId,
-        date: new Date(todayStr + 'T00:00:00.000Z'),
-        status: { in: ['programado', 'activo'] },
-      },
-      include: { post: { include: { site: true } } },
-    });
+    const shift = await findCurrentShift(this.prisma, user.guardId, new Date());
 
     let geofenceStatus: string | null = null;
     if (shift?.post?.site?.latitude && shift.post.site.longitude) {

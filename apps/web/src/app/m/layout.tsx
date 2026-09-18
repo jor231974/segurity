@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import RequireAuth from '@/components/require-auth';
 import { useAuth } from '@/components/auth-provider';
+import { PERMISSIONS } from '@servicom/shared';
 import { Icon, IconName, IconShield } from '@/components/icons';
 
 const TABS: { href: string; label: string; icon: IconName }[] = [
@@ -17,6 +18,8 @@ const TABS: { href: string; label: string; icon: IconName }[] = [
 export default function MobileLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user } = useAuth();
+
+  const canUseDesktop = !!user?.permissions?.includes(PERMISSIONS.DASHBOARD_VIEW);
 
   return (
     <RequireAuth>
@@ -33,9 +36,11 @@ export default function MobileLayout({ children }: { children: React.ReactNode }
               <p className="text-[11px] text-slate-400">App de guardia</p>
             </div>
           </div>
-          <Link href="/" className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-50">
-            Escritorio
-          </Link>
+          {canUseDesktop && (
+            <Link href="/" className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-50">
+              Escritorio
+            </Link>
+          )}
         </header>
 
         <main className="flex-1 pb-20">{children}</main>

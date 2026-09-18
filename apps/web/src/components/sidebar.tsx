@@ -5,38 +5,41 @@ import { usePathname } from 'next/navigation';
 import { Icon, IconName } from '@/components/icons';
 import { IconShield } from '@/components/icons';
 import { IconClose } from '@/components/icons';
+import { useAuth } from '@/components/auth-provider';
+import { PERMISSIONS } from '@servicom/shared';
 
 interface NavItem {
   href: string;
   label: string;
   section: string;
   icon: IconName;
+  perm?: string;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: '/', label: 'Inicio', section: 'general', icon: 'dashboard' },
-  { href: '/notifications', label: 'Avisos', section: 'general', icon: 'bell' },
-  { href: '/clients', label: 'Clientes', section: 'comercial', icon: 'building' },
-  { href: '/contracts', label: 'Contratos', section: 'comercial', icon: 'contract' },
-  { href: '/sites', label: 'Instalaciones', section: 'comercial', icon: 'site' },
-  { href: '/posts', label: 'Puestos', section: 'operacion', icon: 'post' },
-  { href: '/guards', label: 'Guardias', section: 'operacion', icon: 'users' },
-  { href: '/shifts', label: 'Turnos', section: 'operacion', icon: 'shifts' },
-  { href: '/consigns', label: 'Consignas', section: 'operacion', icon: 'list' },
-  { href: '/incidents', label: 'Incidencias', section: 'operacion', icon: 'incident' },
-  { href: '/patrols', label: 'Rondines', section: 'operacion', icon: 'route' },
-  { href: '/attendance', label: 'Asistencia', section: 'operacion', icon: 'clock' },
-  { href: '/gps', label: 'Ubicaciones', section: 'operacion', icon: 'gps' },
-  { href: '/visitors', label: 'Visitantes', section: 'operacion', icon: 'visitors' },
-  { href: '/vehicles', label: 'Vehículos', section: 'operacion', icon: 'car' },
-  { href: '/inventory', label: 'Equipo', section: 'operacion', icon: 'box' },
-  { href: '/prepayroll', label: 'Pre-nómina', section: 'finanzas', icon: 'payroll' },
-  { href: '/billing', label: 'Facturación', section: 'finanzas', icon: 'invoice' },
-  { href: '/video', label: 'Video', section: 'supervision', icon: 'camera' },
-  { href: '/supervision', label: 'Supervisión', section: 'supervision', icon: 'supervis' },
-  { href: '/sos', label: 'SOS', section: 'supervision', icon: 'sos' },
-  { href: '/users', label: 'Usuarios', section: 'admin', icon: 'user' },
-  { href: '/audit', label: 'Auditoría', section: 'admin', icon: 'eye' },
+  { href: '/', label: 'Inicio', section: 'general', icon: 'dashboard', perm: PERMISSIONS.DASHBOARD_VIEW },
+  { href: '/notifications', label: 'Avisos', section: 'general', icon: 'bell', perm: PERMISSIONS.DASHBOARD_VIEW },
+  { href: '/clients', label: 'Clientes', section: 'comercial', icon: 'building', perm: PERMISSIONS.CLIENTS_VIEW },
+  { href: '/contracts', label: 'Contratos', section: 'comercial', icon: 'contract', perm: PERMISSIONS.CONTRACTS_VIEW },
+  { href: '/sites', label: 'Instalaciones', section: 'comercial', icon: 'site', perm: PERMISSIONS.SITES_VIEW },
+  { href: '/posts', label: 'Puestos', section: 'operacion', icon: 'post', perm: PERMISSIONS.POSTS_VIEW },
+  { href: '/guards', label: 'Guardias', section: 'operacion', icon: 'users', perm: PERMISSIONS.GUARDS_VIEW },
+  { href: '/shifts', label: 'Turnos', section: 'operacion', icon: 'shifts', perm: PERMISSIONS.SHIFTS_VIEW },
+  { href: '/consigns', label: 'Consignas', section: 'operacion', icon: 'list', perm: PERMISSIONS.CONSIGNS_VIEW },
+  { href: '/incidents', label: 'Incidencias', section: 'operacion', icon: 'incident', perm: PERMISSIONS.INCIDENTS_VIEW },
+  { href: '/patrols', label: 'Rondines', section: 'operacion', icon: 'route', perm: PERMISSIONS.PATROLS_VIEW },
+  { href: '/attendance', label: 'Asistencia', section: 'operacion', icon: 'clock', perm: PERMISSIONS.ATTENDANCE_VIEW },
+  { href: '/gps', label: 'Ubicaciones', section: 'operacion', icon: 'gps', perm: PERMISSIONS.GPS_VIEW },
+  { href: '/visitors', label: 'Visitantes', section: 'operacion', icon: 'visitors', perm: PERMISSIONS.VISITORS_VIEW },
+  { href: '/vehicles', label: 'Vehículos', section: 'operacion', icon: 'car', perm: PERMISSIONS.VEHICLES_VIEW },
+  { href: '/inventory', label: 'Equipo', section: 'operacion', icon: 'box', perm: PERMISSIONS.INVENTORY_VIEW },
+  { href: '/prepayroll', label: 'Pre-nómina', section: 'finanzas', icon: 'payroll', perm: PERMISSIONS.PREPAYROLL_VIEW },
+  { href: '/billing', label: 'Facturación', section: 'finanzas', icon: 'invoice', perm: PERMISSIONS.BILLING_VIEW },
+  { href: '/video', label: 'Video', section: 'supervision', icon: 'camera', perm: PERMISSIONS.VIDEO_RECORDING_VIEW },
+  { href: '/supervision', label: 'Supervisión', section: 'supervision', icon: 'supervis', perm: PERMISSIONS.SUPERVISION_VIEW },
+  { href: '/sos', label: 'SOS', section: 'supervision', icon: 'sos', perm: PERMISSIONS.SOS_VIEW },
+  { href: '/users', label: 'Usuarios', section: 'admin', icon: 'user', perm: PERMISSIONS.USERS_VIEW },
+  { href: '/audit', label: 'Auditoría', section: 'admin', icon: 'eye', perm: PERMISSIONS.AUDIT_VIEW },
 ];
 
 const SECTIONS: { key: string; label: string }[] = [
@@ -50,10 +53,17 @@ const SECTIONS: { key: string; label: string }[] = [
 
 function Nav() {
   const pathname = usePathname();
+  const { user } = useAuth();
+  const perms = new Set(user?.permissions ?? []);
+
+  const visibleItems = NAV_ITEMS.filter(
+    (i) => !i.perm || perms.has(i.perm) || user?.roleCodes?.includes('SUPER_ADMIN'),
+  );
+
   return (
     <nav className="flex-1 overflow-y-auto px-3 py-4">
       {SECTIONS.map((sec) => {
-        const items = NAV_ITEMS.filter((i) => i.section === sec.key);
+        const items = visibleItems.filter((i) => i.section === sec.key);
         if (items.length === 0) return null;
         return (
           <div key={sec.key} className="mb-5">

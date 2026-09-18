@@ -27,9 +27,11 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      await login(email, password);
+      const data = await login(email, password);
       await reload();
-      router.push('/');
+      if (data.user.roleCodes?.includes('GUARD')) router.push('/m');
+      else if (data.user.roleCodes?.includes('CLIENT')) router.push('/portal');
+      else router.push('/');
     } catch (err: any) {
       const msg = err?.message || 'Error al iniciar sesión';
       if (String(msg).toLowerCase().includes('401')) setError('Usuario o contraseña incorrectos.');

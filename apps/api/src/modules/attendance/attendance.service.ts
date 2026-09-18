@@ -2,6 +2,10 @@ import { Injectable, BadRequestException, NotFoundException, ForbiddenException 
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthUser } from '../../common/decorators/current-user.decorator';
 import { haversineDistanceKm, isInsideGeofence } from '../../common/utils/geo';
+import { findCurrentShift, localDateStr, toMinutes } from '../../common/utils/shift';
+
+/** Estados del guardia que impiden marcar asistencia. */
+const BLOCKED_GUARD_STATUS = new Set(['baja', 'suspendido']);
 
 @Injectable()
 export class AttendanceService {
@@ -9,7 +13,13 @@ export class AttendanceService {
 
   /** Fecha local (YYYY-MM-DD) para evitar desfases por la frontera UTC al agendar turnos. */
   private localDateStr(d: Date): string {
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return localDateStr(d);
+  }
+
+  private startOfLocalDay(d: Date): Date {
+    const s = new Date(d);
+    s.setHours(0, 0, 0, 0);
+    return s;
   }
 
   async findAll(user: AuthUser, query: { date?: string; guardId?: string; shiftId?: string }) {
@@ -55,6 +65,12 @@ export class AttendanceService {
       include: { post: { include: { site: true } } },
       orderBy: { startTime: 'asc' },
     });
+
+    // Incluir el turno nocturno del día anterior aún en curso (cruza medianoche).
+    const current = await findCurrentShift(this.prisma, user.guardId, new Date());
+    if (current && !shifts.some((s) => s.id === current.id)) {
+      shifts.push(current as any);
+    }
 
     return { records, shifts };
   }
@@ -115,6 +131,13 @@ export class AttendanceService {
       ? await this.prisma.guard.findUnique({ where: { id: user.guardId } })
       : null;
     if (!guard) throw new ForbiddenException('El usuario no es guardia');
+    if (BLOCKED_GUARD_STATUS.has(guard.status)) {
+      throw new ForbiddenException(
+        guard.status === 'baja'
+          ? 'Tu perfil está dado de baja. No puedes marcar asistencia.'
+          : 'Tu perfil está suspendido. Contacta a tu supervisor.',
+      );
+    }
 
     const type = body.type;
     if (!['entrada', 'salida'].includes(type)) throw new BadRequestException('Tipo inválido');
@@ -123,18 +146,32 @@ export class AttendanceService {
     }
 
     const now = new Date();
-    const todayStr = this.localDateStr(now);
 
-    // Buscar turno activo del día
-    const shift = await this.prisma.shift.findFirst({
+    // Evitar doble entrada y salida sin entrada previa.
+    const todayRecords = await this.prisma.attendance.findMany({
       where: {
         guardId: guard.id,
-        date: new Date(todayStr + 'T00:00:00.000Z'),
-        status: { in: ['programado', 'activo'] },
+        timestamp: { gte: this.startOfLocalDay(now), lte: new Date() },
       },
-      include: { post: { include: { site: true } } },
-      orderBy: { startTime: 'asc' },
+      orderBy: { timestamp: 'asc' },
     });
+    const lastRecord = todayRecords[todayRecords.length - 1];
+
+    if (type === 'entrada') {
+      if (lastRecord && lastRecord.type === 'entrada') {
+        throw new BadRequestException('Ya registraste tu entrada hoy');
+      }
+    } else {
+      if (lastRecord && lastRecord.type === 'salida') {
+        throw new BadRequestException('Ya registraste tu salida hoy');
+      }
+      if (!todayRecords.some((r) => r.type === 'entrada')) {
+        throw new BadRequestException('Primero debes registrar tu entrada');
+      }
+    }
+
+    // Buscar el turno en curso (soporta rondín nocturno que cruza medianoche).
+    const shift = await findCurrentShift(this.prisma, guard.id, now);
 
     if (!shift) {
       throw new BadRequestException('No tiene turno programado para hoy');
@@ -157,32 +194,38 @@ export class AttendanceService {
 
     // Evaluar desviaciones
     let status: string | null = 'ok';
-    const shiftStart = this.toMinutes(shift.startTime);
-    const shiftEnd = this.toMinutes(shift.endTime);
+    const shiftStart = toMinutes(shift.startTime);
+    const shiftEnd = toMinutes(shift.endTime);
     const nowMinutes = now.getHours() * 60 + now.getMinutes();
 
     if (type === 'entrada' && nowMinutes > shiftStart + 15) status = 'fuera_de_horario';
     if (type === 'salida' && nowMinutes < shiftEnd - 30) status = 'salida_anticipada';
     if (geofenceResult === 'fuera') status = 'fuera_de_geocerca';
 
-    const record = await this.prisma.attendance.create({
-      data: {
-        guardId: guard.id,
-        shiftId: shift.id,
-        postId: shift.postId,
-        serviceId: shift.serviceId,
-        type,
-        timestamp: new Date(),
-        latitude: body.latitude,
-        longitude: body.longitude,
-        device: body.device,
-        distanceFromSite,
-        geofenceResult,
-        status,
-        synced: false,
-      },
-      include: { shift: { include: { post: { include: { site: true } } } } },
-    });
+    const [record] = await this.prisma.$transaction([
+      this.prisma.attendance.create({
+        data: {
+          guardId: guard.id,
+          shiftId: shift.id,
+          postId: shift.postId,
+          serviceId: shift.serviceId,
+          type,
+          timestamp: new Date(),
+          latitude: body.latitude,
+          longitude: body.longitude,
+          device: body.device,
+          distanceFromSite,
+          geofenceResult,
+          status,
+          synced: false,
+        },
+        include: { shift: { include: { post: { include: { site: true } } } } },
+      }),
+      this.prisma.shift.update({
+        where: { id: shift.id },
+        data: { status: type === 'entrada' ? 'activo' : 'completado' },
+      }),
+    ]);
 
     return {
       id: record.id,
@@ -203,8 +246,7 @@ export class AttendanceService {
   }
 
   private toMinutes(time: string): number {
-    const [h, m] = time.split(':').map(Number);
-    return h * 60 + m;
+    return toMinutes(time);
   }
 
   async sync(user: AuthUser, records: any[]) {

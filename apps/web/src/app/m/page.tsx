@@ -172,12 +172,21 @@ export default function MobileHome() {
       });
       setGeofenceStatus({
         ok: res?.geofenceResult === 'dentro',
-        text: res?.geofenceResult === 'dentro' ? 'Registro dentro de la zona autorizada' : 'Registro fuera de la zona autorizada',
+        text:
+          res?.geofenceResult === 'dentro'
+            ? 'Estás dentro de la zona de tu puesto. Todo en orden.'
+            : 'Tu registro se guardó, pero estás fuera de la zona del puesto. Avisa a tu supervisor.',
       });
-      setMsg({
-        tone: 'ok',
-        text: `${type === 'entrada' ? 'Entrada' : 'Salida'} registrada correctamente.`,
-      });
+      if (res?.status === 'fuera_de_horario') {
+        setMsg({ tone: 'err', text: 'Registrado, pero se marcó después de la hora de tu turno. Avisa a tu supervisor.' });
+      } else if (res?.status === 'salida_anticipada') {
+        setMsg({ tone: 'err', text: 'Registrado, pero sales antes de la hora de tu turno. Avisa a tu supervisor.' });
+      } else {
+        setMsg({
+          tone: 'ok',
+          text: type === 'entrada' ? 'Tu entrada quedó registrada. ¡Buen turno!' : 'Tu salida quedó registrada. Hasta pronto.',
+        });
+      }
       await load();
     } catch (e: any) {
       if (isOnline()) setMsg({ tone: 'err', text: e?.message || 'No fue posible registrar. Inténtalo de nuevo.' });
@@ -198,7 +207,7 @@ export default function MobileHome() {
         return;
       }
       await apiFetch('/gps/ping', { method: 'POST', body: JSON.stringify(p) });
-      setMsg({ tone: 'ok', text: 'Ubicación enviada al centro de monitoreo.' });
+      setMsg({ tone: 'ok', text: 'Ubicación enviada. Gracias por mantenerte conectado.' });
     } catch (e: any) {
       if (isOnline()) setMsg({ tone: 'err', text: e?.message || 'No se pudo enviar la ubicación.' });
     } finally {
@@ -210,7 +219,12 @@ export default function MobileHome() {
     return new Date(t).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
   }
 
-  const hasCheckedIn = (data?.records ?? []).some((r) => r.type === 'entrada');
+  /** Primera entrada del día (turno en curso). */
+const hasCheckedIn = (data?.records ?? []).some((r) => r.type === 'entrada');
+/** Último movimiento del día: entrada (activo) o salida. */
+const lastRecord = (data?.records ?? []).length > 0 ? data!.records[data!.records.length - 1] : null;
+const alreadyCheckedIn = !!lastRecord && lastRecord.type === 'entrada';
+const alreadyCheckedOut = !!lastRecord && lastRecord.type === 'salida';
 
   return (
     <div className="space-y-4 p-4">
@@ -233,7 +247,7 @@ export default function MobileHome() {
             <StatusBadge status={hub.currentShift.status} />
           </div>
         ) : (
-          <p className="relative mt-2 text-sm text-slate-300">No tienes turno programado hoy.</p>
+          <p className="relative mt-2 text-sm text-slate-300">No tienes un turno asignado para hoy. Pregunta a tu supervisor si es correcto.</p>
         )}
       </div>
 
@@ -281,28 +295,31 @@ export default function MobileHome() {
         <div className="card">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Registro de asistencia</h2>
-            {hasCheckedIn && (
-              <span className="badge bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
-                Entrada registrada ✓
-              </span>
-            )}
+            {alreadyCheckedOut ? (
+              <span className="badge bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-600/20">Salida registrada ✓</span>
+            ) : alreadyCheckedIn ? (
+              <span className="badge bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20">Entrada registrada ✓</span>
+            ) : null}
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <button
-              className="btn bg-emerald-600 text-white shadow-sm hover:bg-emerald-700"
-              disabled={working !== null}
+              className="btn bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={working !== null || alreadyCheckedIn}
               onClick={() => check('entrada')}
             >
-              {working === 'entrada' ? 'Obteniendo GPS…' : 'Marcar entrada'}
+              {working === 'entrada' ? 'Espera tu ubicación…' : alreadyCheckedIn ? 'Entrada ya registrada' : 'Marcar entrada'}
             </button>
             <button
-              className="btn bg-slate-800 text-white shadow-sm hover:bg-slate-900"
-              disabled={working !== null}
+              className="btn bg-slate-800 text-white shadow-sm hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={working !== null || !hasCheckedIn || alreadyCheckedOut}
               onClick={() => check('salida')}
             >
-              {working === 'salida' ? 'Obteniendo GPS…' : 'Marcar salida'}
+              {working === 'salida' ? 'Espera tu ubicación…' : alreadyCheckedOut ? 'Salida ya registrada' : 'Marcar salida'}
             </button>
           </div>
+          {!hasCheckedIn && (
+            <p className="mt-2 text-xs text-slate-400">Primero marca tu entrada cuando llegues a tu puesto.</p>
+          )}
         </div>
       )}
 

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthUser } from '../../common/decorators/current-user.decorator';
+import { findCurrentShift, localDateStr } from '../../common/utils/shift';
 
 @Injectable()
 export class DashboardService {
@@ -8,7 +9,7 @@ export class DashboardService {
 
   /** Fecha local (YYYY-MM-DD) para evitar desfases por la frontera UTC al cruzar turnos/asistencia. */
   private localDateStr(d: Date): string {
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return localDateStr(d);
   }
 
   async getOverview(user: AuthUser) {
@@ -84,18 +85,20 @@ export class DashboardService {
   async getGuardHub(user: AuthUser) {
     if (!user.guardId) return { message: 'El usuario no es guardia' };
     const now = new Date();
-    const todayStr = this.localDateStr(now);
 
     const [guard, shift] = await Promise.all([
       this.prisma.guard.findUnique({
         where: { id: user.guardId },
         include: { zone: true, supervisor: { select: { id: true, firstName: true, lastName: true, phone: true } } },
       }),
-      this.prisma.shift.findFirst({
-        where: { guardId: user.guardId, date: new Date(todayStr + 'T00:00:00.000Z'), status: { in: ['programado', 'activo'] } },
-        include: { post: { include: { site: true, consigns: { where: { status: 'activo' } } } } },
-        orderBy: { startTime: 'asc' },
-      }),
+      findCurrentShift(this.prisma, user.guardId, now).then((s) =>
+        s
+          ? this.prisma.shift.findFirst({
+              where: { id: s.id },
+              include: { post: { include: { site: true, consigns: { where: { status: 'activo' } } } } },
+            })
+          : null,
+      ),
     ]);
 
     const [attendance, consigns] = shift ? await Promise.all([
