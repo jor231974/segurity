@@ -20,8 +20,8 @@ services:
     runtime: node
     plan: free
     region: oregon
-    buildCommand: npm ci && npm run build --workspace @servicom/shared && npx prisma generate --schema apps/api/prisma/schema.prisma && npm run build --workspace @servicom/api
-    startCommand: npx prisma migrate deploy --schema apps/api/prisma/schema.prisma && npm run start:prod --workspace @servicom/api
+    buildCommand: npm ci --include=dev --no-audit --no-fund && npm run build --workspace @servicom/shared && npx prisma generate --schema apps/api/prisma/schema.prisma && npm run build --workspace @servicom/api
+    startCommand: npx prisma migrate deploy --schema apps/api/prisma/schema.prisma && npm run prisma:seed --workspace @servicom/api && npm run start:prod --workspace @servicom/api
     envVars:
       - key: NODE_ENV
         value: production
@@ -34,9 +34,9 @@ services:
       - key: CORS_ORIGINS
         sync: false
       - key: STORAGE_PATH
-        value: /var/data/storage
+        value: /opt/render/project/src/data/storage
       - key: VIDEO_STORAGE_PATH
-        value: /var/data/videos
+        value: /opt/render/project/src/data/videos
       - key: MAX_LOGIN_ATTEMPTS
         value: "5"
       - key: LOGIN_LOCKOUT_MINUTES
@@ -46,7 +46,7 @@ services:
 
   - type: static
     name: servicom-web
-    buildCommand: npm ci && npm run build --workspace @servicom/shared && npm run build --workspace @servicom/web
+    buildCommand: npm ci --include=dev --no-audit --no-fund && npm run build --workspace @servicom/shared && npm run build --workspace @servicom/web
     publishPath: apps/web/out
     envVars:
       - key: NEXT_PUBLIC_API_URL

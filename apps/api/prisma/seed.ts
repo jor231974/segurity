@@ -5,13 +5,25 @@ import { ALL_PERMISSIONS } from '@servicom/shared';
 
 const prisma = new PrismaClient();
 
+function warnCode(e: unknown): string | null {
+  if (e && typeof e === 'object' && 'code' in e) {
+    const code = (e as { code?: string }).code;
+    if (code === 'P2002') return 'dup';
+  }
+  return null;
+}
+
 async function main() {
   console.log('Iniciando seed de desarrollo...');
 
-  // 1. Crear empresa demo
-  const company = await prisma.company.create({
-    data: {
-      id: 'c0000001-0000-0000-0000-000000000001',
+  // 1. Empresa demo (idempotente)
+  const companyAId = 'c0000001-0000-0000-0000-000000000001';
+  const companyBId = 'c0000002-0000-0000-0000-000000000002';
+  const company = await prisma.company.upsert({
+    where: { id: companyAId },
+    update: {},
+    create: {
+      id: companyAId,
       legalName: 'Servicios de Seguridad Privada Grupo Servicom S.A. de C.V.',
       commercialName: 'Grupo Servicom',
       rfc: 'SSP123456789',
@@ -23,10 +35,11 @@ async function main() {
     },
   });
 
-  // 2. Crear empresa B (para prueba de aislamiento multiempresa)
-  const companyB = await prisma.company.create({
-    data: {
-      id: 'c0000002-0000-0000-0000-000000000002',
+  const companyB = await prisma.company.upsert({
+    where: { id: companyBId },
+    update: {},
+    create: {
+      id: companyBId,
       legalName: 'Protección Total del Norte S.A. de C.V.',
       commercialName: 'ProTotal Norte',
       rfc: 'PTN987654321',
@@ -38,24 +51,33 @@ async function main() {
     },
   });
 
-  // 3. Crear roles con permisos
-  const allPerms = ALL_PERMISSIONS;
-  const roles = await Promise.all([
-    prisma.role.create({ data: { code: 'SUPER_ADMIN', name: 'Superadministrador', isSystem: true } }),
-    prisma.role.create({ data: { code: 'DIRECTOR', name: 'Director', isSystem: true } }),
-    prisma.role.create({ data: { code: 'ADMINISTRATOR', name: 'Administrador', isSystem: true } }),
-    prisma.role.create({ data: { code: 'HR', name: 'Recursos Humanos', isSystem: true } }),
-    prisma.role.create({ data: { code: 'OPS_COORDINATOR', name: 'Coordinador de Operaciones', isSystem: true } }),
-    prisma.role.create({ data: { code: 'SUPERVISOR', name: 'Supervisor', isSystem: true } }),
-    prisma.role.create({ data: { code: 'MONITOR', name: 'Monitor', isSystem: true } }),
-    prisma.role.create({ data: { code: 'GUARD', name: 'Guardia', isSystem: true } }),
-    prisma.role.create({ data: { code: 'ACCOUNTING', name: 'Contabilidad', isSystem: true } }),
-    prisma.role.create({ data: { code: 'CLIENT', name: 'Cliente', isSystem: true } }),
-  ]);
+  // 2. Roles (idempotente)
+  const roleCodes = ['SUPER_ADMIN', 'DIRECTOR', 'ADMINISTRATOR', 'HR', 'OPS_COORDINATOR', 'SUPERVISOR', 'MONITOR', 'GUARD', 'ACCOUNTING', 'CLIENT'];
+  const roleNames: Record<string, string> = {
+    SUPER_ADMIN: 'Superadministrador',
+    DIRECTOR: 'Director',
+    ADMINISTRATOR: 'Administrador',
+    HR: 'Recursos Humanos',
+    OPS_COORDINATOR: 'Coordinador de Operaciones',
+    SUPERVISOR: 'Supervisor',
+    MONITOR: 'Monitor',
+    GUARD: 'Guardia',
+    ACCOUNTING: 'Contabilidad',
+    CLIENT: 'Cliente',
+  };
+  const roles: Record<string, { id: string; code: string }> = {};
+  for (const code of roleCodes) {
+    const role = await prisma.role.upsert({
+      where: { code },
+      update: {},
+      create: { code, name: roleNames[code], isSystem: true },
+    });
+    roles[code] = role;
+  }
 
-  // 4. Crear permisos
+  // 3. Permisos (idempotente)
   const permMap = new Map<string, { id: string; code: string }>();
-  for (const perm of allPerms) {
+  for (const perm of ALL_PERMISSIONS) {
     const p = await prisma.permission.upsert({
       where: { code: perm },
       create: { code: perm, description: perm },
@@ -64,125 +86,140 @@ async function main() {
     permMap.set(perm, p);
   }
 
-  // 5. Asignar todos los permisos al SUPER_ADMIN
-  const superAdmin = roles.find((r) => r.code === 'SUPER_ADMIN')!;
-  await prisma.rolePermission.createMany({
-    data: allPerms.map((code) => ({ roleId: superAdmin.id, permissionId: permMap.get(code)!.id })),
-  });
+  // 4. Asignar permisos a roles (idempotente, skip duplicados)
+  const allPerms = ALL_PERMISSIONS;
+  const bindPerms = async (roleId: string, codes: string[]) => {
+    await prisma.rolePermission.createMany({
+      data: codes
+        .map((code) => ({ roleId, permissionId: permMap.get(code)?.id }))
+        .filter((x): x is { roleId: string; permissionId: string } => Boolean(x.permissionId)),
+      skipDuplicates: true,
+    });
+  };
+  await bindPerms(roles.SUPER_ADMIN.id, allPerms);
+  await bindPerms(roles.ADMINISTRATOR.id, allPerms.filter((p) => !p.startsWith('superadmin.')));
+  await bindPerms(roles.CLIENT.id, ['client.portal.access', 'client.request.create', 'client.request.view']);
 
-  // Asignar permisos a otros roles (ejemplo simplificado)
-  const admin = roles.find((r) => r.code === 'ADMINISTRATOR')!;
-  const adminPerms = allPerms.filter((p) => !p.startsWith('superadmin.'));
-  await prisma.rolePermission.createMany({
-    data: adminPerms.map((code) => ({ roleId: admin.id, permissionId: permMap.get(code)!.id })).filter((x) => x.permissionId),
-  });
-
-  // Permisos del rol CLIENT (portal del cliente)
-  const clientRole = roles.find((r) => r.code === 'CLIENT')!;
-  await prisma.rolePermission.createMany({
-    data: ['client.portal.access', 'client.request.create', 'client.request.view']
-      .map((code) => ({ roleId: clientRole.id, permissionId: permMap.get(code)!.id }))
-      .filter((x) => x.permissionId),
-  });
-
-  // 6. Crear usuarios demo
+  // 5. Usuarios demo (idempotente)
   const adminHash = await bcrypt.hash('Admin123!', 12);
   const supervisorHash = await bcrypt.hash('Supervisor123!', 12);
   const guardHash = await bcrypt.hash('Guardia123!', 12);
-
-  const adminUser = await prisma.user.create({
-    data: {
-      companyId: company.id,
-      email: 'admin@gruposervicom.com',
-      passwordHash: adminHash,
-      name: 'Carlos',
-      lastName: 'García',
-      phone: '+52 55 1234 5679',
-      active: true,
-      userRoles: { create: { roleId: admin.id } },
-    },
-  });
-
-  const supervisorUser = await prisma.user.create({
-    data: {
-      companyId: company.id,
-      email: 'supervisor@gruposervicom.com',
-      passwordHash: supervisorHash,
-      name: 'María',
-      lastName: 'López',
-      phone: '+52 55 2345 6789',
-      active: true,
-      userRoles: { create: { roleId: roles.find((r) => r.code === 'SUPERVISOR')!.id } },
-    },
-  });
-
-  const guardUser = await prisma.user.create({
-    data: {
-      companyId: company.id,
-      email: 'guardia@gruposervicom.com',
-      passwordHash: guardHash,
-      name: 'Juan',
-      lastName: 'Pérez',
-      phone: '+52 55 3456 7890',
-      active: true,
-      userRoles: { create: { roleId: roles.find((r) => r.code === 'GUARD')!.id } },
-    },
-  });
-
-  // Usuario de empresa B
-  await prisma.user.create({
-    data: {
-      companyId: companyB.id,
-      email: 'admin@prototal.com',
-      passwordHash: adminHash,
-      name: 'Roberto',
-      lastName: 'Sánchez',
-      phone: '+52 81 1111 2222',
-      active: true,
-      userRoles: { create: { roleId: admin.id } },
-    },
-  });
-
-  // 7. Zonas y departamentos
-  const zona = await prisma.zone.create({ data: { companyId: company.id, name: 'Zona Centro', description: 'Ciudad de México centro' } });
-  const dept = await prisma.branch.create({ data: { companyId: company.id, name: 'Sucursal Principal', address: company.address, phone: company.phone } });
-
-  // 8. Cliente demo
-  const client = await prisma.client.create({
-    data: {
-      companyId: company.id,
-      legalName: 'Comercializadora ABC S.A. de C.V.',
-      commercialName: 'ABC Corp',
-      rfc: 'CCA123456789',
-      email: 'contacto@abccorp.com',
-      phone: '+52 55 9876 5432',
-      address: 'Calzada de Tlalpan 789, Col. Portales, CDMX CP 03300',
-      status: 'activo',
-      contacts: { create: [{ name: 'Roberto Morales', position: 'Gerente', phone: '+52 55 9876 5433', email: 'rmorales@abccorp.com', isPrimary: true }] },
-    },
-  });
-
-  // Usuario del portal cliente (rol CLIENT) vinculado al cliente
   const clientHash = await bcrypt.hash('Cliente123!', 12);
-  const clientUser = await prisma.user.create({
-    data: {
-      companyId: company.id,
-      email: 'cliente@abccorp.com',
-      passwordHash: clientHash,
-      name: 'Roberto',
-      lastName: 'Morales',
-      phone: '+52 55 9876 5433',
-      active: true,
-      userRoles: { create: { roleId: clientRole.id } },
-    },
-  });
-  await prisma.clientUser.create({
-    data: { clientId: client.id, userId: clientUser.id },
+
+  const ensureUser = async (data: {
+    companyId: string;
+    email: string;
+    passwordHash: string;
+    name: string;
+    lastName: string;
+    phone?: string;
+    roleId: string;
+  }) => {
+    const user = await prisma.user.upsert({
+      where: { email: data.email },
+      update: { active: true },
+      create: {
+        companyId: data.companyId,
+        email: data.email,
+        passwordHash: data.passwordHash,
+        name: data.name,
+        lastName: data.lastName,
+        phone: data.phone ?? '',
+        active: true,
+      },
+    });
+    await prisma.userRole
+      .create({ data: { userId: user.id, roleId: data.roleId } })
+      .catch((e) => warnCode(e));
+    return user;
+  };
+
+  const adminUser = await ensureUser({
+    companyId: company.id,
+    email: 'admin@gruposervicom.com',
+    passwordHash: adminHash,
+    name: 'Carlos',
+    lastName: 'García',
+    phone: '+52 55 1234 5679',
+    roleId: roles.ADMINISTRATOR.id,
   });
 
-  // 9. Contrato y servicio
-  const contract = await prisma.contract.create({
-    data: {
+  const supervisorUser = await ensureUser({
+    companyId: company.id,
+    email: 'supervisor@gruposervicom.com',
+    passwordHash: supervisorHash,
+    name: 'María',
+    lastName: 'López',
+    phone: '+52 55 2345 6789',
+    roleId: roles.SUPERVISOR.id,
+  });
+
+  const guardUser = await ensureUser({
+    companyId: company.id,
+    email: 'guardia@gruposervicom.com',
+    passwordHash: guardHash,
+    name: 'Juan',
+    lastName: 'Pérez',
+    phone: '+52 55 3456 7890',
+    roleId: roles.GUARD.id,
+  });
+
+  await ensureUser({
+    companyId: companyB.id,
+    email: 'admin@prototal.com',
+    passwordHash: adminHash,
+    name: 'Roberto',
+    lastName: 'Sánchez',
+    phone: '+52 81 1111 2222',
+    roleId: roles.ADMINISTRATOR.id,
+  });
+
+  // 6. Zonas, sucursales, cliente, usuario de portal del cliente
+  let zona = await prisma.zone.findFirst({ where: { companyId: company.id, name: 'Zona Centro' } });
+  if (!zona) zona = await prisma.zone.create({ data: { companyId: company.id, name: 'Zona Centro', description: 'Ciudad de México centro' } });
+
+  const dept = await prisma.branch.findFirst({ where: { companyId: company.id, name: 'Sucursal Principal' } });
+  if (!dept) await prisma.branch.create({ data: { companyId: company.id, name: 'Sucursal Principal', address: company.address, phone: company.phone } });
+
+  let client = await prisma.client.findFirst({ where: { companyId: company.id, commercialName: 'ABC Corp' } });
+  if (!client) {
+    client = await prisma.client.create({
+      data: {
+        companyId: company.id,
+        legalName: 'Comercializadora ABC S.A. de C.V.',
+        commercialName: 'ABC Corp',
+        rfc: 'CCA123456789',
+        email: 'contacto@abccorp.com',
+        phone: '+52 55 9876 5432',
+        address: 'Calzada de Tlalpan 789, Col. Portales, CDMX CP 03300',
+        status: 'activo',
+      },
+    });
+  }
+
+  await prisma.clientContact.createMany({
+    data: [{ name: 'Roberto Morales', position: 'Gerente', phone: '+52 55 9876 5433', email: 'rmorales@abccorp.com', isPrimary: true, clientId: client.id }],
+    skipDuplicates: true,
+  }).catch(() => undefined);
+
+  const clientUser = await ensureUser({
+    companyId: company.id,
+    email: 'cliente@abccorp.com',
+    passwordHash: clientHash,
+    name: 'Roberto',
+    lastName: 'Morales',
+    phone: '+52 55 9876 5433',
+    roleId: roles.CLIENT.id,
+  });
+  await prisma.clientUser
+    .create({ data: { clientId: client.id, userId: clientUser.id } })
+    .catch((e) => warnCode(e));
+
+  // 7. Contrato y servicio
+  const contract = await prisma.contract.upsert({
+    where: { companyId_number: { companyId: company.id, number: 'CTR-2026-001' } },
+    update: {},
+    create: {
       companyId: company.id,
       clientId: client.id,
       number: 'CTR-2026-001',
@@ -193,45 +230,49 @@ async function main() {
     },
   });
 
-  // 10. Instalación (sitio)
-  const site = await prisma.site.create({
-    data: {
-      clientId: client.id,
-      name: 'Planta ABC - Chalco',
-      address: 'Av. Industrial 123, Chalco, Estado de México',
-      latitude: 19.2652,
-      longitude: -98.8966,
-      geofenceRadiusMeters: 100,
-      contactName: 'Ing. Roberto Morales',
-      contactPhone: '+52 55 9876 5433',
-      instructions: 'Presentarse con identificación. Llamar al contacto antes de entrar.',
-    },
-  });
+  let site = await prisma.site.findFirst({ where: { clientId: client.id, name: 'Planta ABC - Chalco' } });
+  if (!site) {
+    site = await prisma.site.create({
+      data: {
+        clientId: client.id,
+        name: 'Planta ABC - Chalco',
+        address: 'Av. Industrial 123, Chalco, Estado de México',
+        latitude: 19.2652,
+        longitude: -98.8966,
+        geofenceRadiusMeters: 100,
+        contactName: 'Ing. Roberto Morales',
+        contactPhone: '+52 55 9876 5433',
+        instructions: 'Presentarse con identificación. Llamar al contacto antes de entrar.',
+      },
+    });
+  }
 
-  // Servicio
-  const service = await prisma.contractService.create({
-    data: {
-      contractId: contract.id,
-      siteId: site.id,
-      name: 'Vigilancia 24/7',
-      guardCount: 2,
-      tariff: 12000,
-      estimatedCost: 9600,
-      startDate: new Date('2026-01-01'),
-    },
-  });
+  let service = await prisma.contractService.findFirst({ where: { contractId: contract.id, name: 'Vigilancia 24/7' } });
+  if (!service) {
+    service = await prisma.contractService.create({
+      data: {
+        contractId: contract.id,
+        siteId: site.id,
+        name: 'Vigilancia 24/7',
+        guardCount: 2,
+        tariff: 12000,
+        estimatedCost: 9600,
+        startDate: new Date('2026-01-01'),
+      },
+    });
+  }
 
-  // 11. Puestos
-  const post1 = await prisma.post.create({
-    data: { siteId: site.id, name: 'Entrada Principal', shiftStart: '07:00', shiftEnd: '19:00', active: true },
-  });
-  const post2 = await prisma.post.create({
-    data: { siteId: site.id, name: 'Rondín Nocturno', shiftStart: '19:00', shiftEnd: '07:00', active: true },
-  });
+  // 8. Puestos
+  let post1 = await prisma.post.findFirst({ where: { siteId: site.id, name: 'Entrada Principal' } });
+  if (!post1) post1 = await prisma.post.create({ data: { siteId: site.id, name: 'Entrada Principal', shiftStart: '07:00', shiftEnd: '19:00', active: true } });
+  let post2 = await prisma.post.findFirst({ where: { siteId: site.id, name: 'Rondín Nocturno' } });
+  if (!post2) post2 = await prisma.post.create({ data: { siteId: site.id, name: 'Rondín Nocturno', shiftStart: '19:00', shiftEnd: '07:00', active: true } });
 
-  // 12. Guardia
-  const guard = await prisma.guard.create({
-    data: {
+  // 9. Guardia
+  const guard = await prisma.guard.upsert({
+    where: { employeeNumber: 'GU-001' },
+    update: {},
+    create: {
       companyId: company.id,
       employeeNumber: 'GU-001',
       userId: guardUser.id,
@@ -244,9 +285,9 @@ async function main() {
       status: 'asignado',
       zoneId: zona.id,
     },
-  });
+  }).catch(async () => prisma.guard.findFirst({ where: { employeeNumber: 'GU-001' } }).then((g) => g!));
 
-  // 13. Consigna
+  // 10. Consigna
   await prisma.consign.create({
     data: {
       postId: post1.id,
@@ -255,21 +296,21 @@ async function main() {
       version: '1.0',
       authorId: supervisorUser.id,
     },
-  });
+  }).catch((e) => warnCode(e));
 
-  // 14. Ruta de rondín con checkpoints
-  const route = await prisma.patrolRoute.create({
-    data: { siteId: site.id, postId: post1.id, name: 'Ruta Principal', schedule: 'Cada 2 horas' },
-  });
+  // 11. Ruta de rondín con checkpoints
+  let route = await prisma.patrolRoute.findFirst({ where: { siteId: site.id, name: 'Ruta Principal' } });
+  if (!route) route = await prisma.patrolRoute.create({ data: { siteId: site.id, postId: post1.id, name: 'Ruta Principal', schedule: 'Cada 2 horas' } });
   await prisma.patrolCheckpoint.createMany({
     data: [
       { routeId: route.id, name: 'Puerta Norte', sequence: 0, latitude: 19.2655, longitude: -98.8960 },
       { routeId: route.id, name: 'Estacionamiento', sequence: 1, latitude: 19.2650, longitude: -98.8970 },
       { routeId: route.id, name: 'Almacén', sequence: 2, latitude: 19.2648, longitude: -98.8965 },
     ],
+    skipDuplicates: true,
   });
 
-  // 15. Turno para hoy
+  // 12. Turno para hoy
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   await prisma.shift.create({
@@ -282,9 +323,9 @@ async function main() {
       endTime: '19:00',
       status: 'programado',
     },
-  });
+  }).catch((e) => warnCode(e));
 
-  // 16. Tipos de incidencia
+  // 13. Tipos de incidencia
   const incidentTypes = ['Robo', 'Intento de robo', 'Persona sospechosa', 'Accidente', 'Daño', 'Incendio', 'Emergencia médica', 'Falla de equipo', 'Otra'];
   await prisma.incidentType.createMany({
     data: incidentTypes.map((name) => ({
@@ -292,21 +333,23 @@ async function main() {
       name,
       color: name.includes('Robo') ? '#dc2626' : name.includes('Accidente') ? '#f59e0b' : '#3b82f6',
     })),
+    skipDuplicates: true,
   });
 
-  // 17. Configuración del sistema
+  // 14. Configuración del sistema
   await prisma.systemSetting.createMany({
     data: [
       { companyId: company.id, key: 'video_expiration_hours', value: { value: 48 }, description: 'Horas de retención de video' },
       { companyId: company.id, key: 'geofence_default_radius', value: { value: 100 }, description: 'Radio de geocerca por defecto (m)' },
       { companyId: company.id, key: 'gps_interval_seconds', value: { value: 30 }, description: 'Intervalo de reporte GPS' },
     ],
+    skipDuplicates: true,
   });
 
   console.log('Seed completado exitosamente.');
   console.log(`  Empresa A: ${company.legalName} (${company.id})`);
   console.log(`  Empresa B: ${companyB.legalName} (${companyB.id})`);
-  console.log(`  Roles: ${roles.length} creados`);
+  console.log(`  Roles: ${Object.keys(roles).length} creados`);
   console.log(`  Permisos: ${permMap.size} creados`);
   console.log(`  Usuarios: admin@gruposervicom.com / Admin123!`);
   console.log(`  Usuarios: supervisor@gruposervicom.com / Supervisor123!`);
