@@ -126,4 +126,22 @@ export class GuardsController {
   getSubordinates(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.guardsService.getSubordinates(user, id);
   }
+
+  @Post(':id/reassign')
+  @Permissions(PERMISSIONS.GUARDS_EDIT)
+  @ApiOperation({ summary: 'Reasignar el guardia a otro cliente (cancela turnos futuros del cliente anterior)' })
+  reassign(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { clientId: string; reason?: string },
+  ) {
+    return this.guardsService.reassign(user, id, body);
+  }
+
+  @Get(':id/assignments')
+  @Permissions(PERMISSIONS.GUARDS_VIEW)
+  @ApiOperation({ summary: 'Historial de asignaciones del guardia' })
+  getAssignments(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.guardsService.getAssignments(user, id);
+  }
 }

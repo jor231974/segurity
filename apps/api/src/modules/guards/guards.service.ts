@@ -14,12 +14,13 @@ export class GuardsService {
     }
   }
 
-  async findAll(user: AuthUser, query: { page: string; limit: string; search?: string; status?: string; zoneId?: string }) {
+  async findAll(user: AuthUser, query: { page: string; limit: string; search?: string; status?: string; zoneId?: string; clientId?: string }) {
     const page = parseInt(query.page) || 1;
     const limit = parseInt(query.limit) || 20;
     const where: any = { companyId: user.companyId, deletedAt: null };
     if (query.status) where.status = query.status;
     if (query.zoneId) where.zoneId = query.zoneId;
+    if (query.clientId) where.assignedClientId = query.clientId;
 
     if (query.search?.trim()) {
       const term = query.search.trim();
@@ -37,6 +38,7 @@ export class GuardsService {
         where,
         include: {
           zone: true,
+          assignedClient: { select: { id: true, commercialName: true, legalName: true } },
           supervisor: { select: { id: true, firstName: true, lastName: true } },
           _count: { select: { shifts: { where: { status: 'activo' } }, documents: true } },
         },
@@ -71,6 +73,7 @@ export class GuardsService {
       where: { id },
       include: {
         zone: true,
+        assignedClient: { select: { id: true, commercialName: true, legalName: true } },
         supervisor: { select: { id: true, firstName: true, lastName: true, photoUrl: true } },
         documents: { orderBy: { createdAt: 'desc' } },
         trainings: { orderBy: { trainingDate: 'desc' } },
@@ -91,6 +94,15 @@ export class GuardsService {
       where: { employeeNumber: body.employeeNumber },
     });
     if (exists) throw new BadRequestException('Ya existe un guardia con ese número de empleado');
+
+    let assignedClientId: string | undefined;
+    if (body.assignedClientId) {
+      const client = await this.prisma.client.findFirst({
+        where: { id: body.assignedClientId, companyId: user.companyId, deletedAt: null },
+      });
+      if (!client) throw new BadRequestException('El cliente asignado no existe o no pertenece a tu empresa');
+      assignedClientId = client.id;
+    }
 
     let userId: string | undefined;
     if (body.email) {
@@ -114,7 +126,7 @@ export class GuardsService {
       userId = newUser.id;
     }
 
-    return this.prisma.guard.create({
+    const guard = await this.prisma.guard.create({
       data: {
         companyId: user.companyId,
         employeeNumber: body.employeeNumber,
@@ -136,12 +148,29 @@ export class GuardsService {
         status: body.status || 'disponible',
         zoneId: body.zoneId,
         supervisorId: body.supervisorId,
+        assignedClientId,
       },
       include: {
         zone: true,
+        assignedClient: { select: { id: true, commercialName: true, legalName: true } },
         supervisor: { select: { id: true, firstName: true, lastName: true } },
       },
     });
+
+    if (assignedClientId) {
+      await this.prisma.guardAssignment.create({
+        data: {
+          companyId: user.companyId,
+          guardId: guard.id,
+          fromClientId: null,
+          toClientId: assignedClientId,
+          changedById: user.id,
+          reason: body.assignmentReason || 'Asignación inicial al crear el guardia',
+        },
+      });
+    }
+
+    return guard;
   }
 
   async update(user: AuthUser, id: string, body: any) {
@@ -178,6 +207,94 @@ export class GuardsService {
     if (!guard) throw new NotFoundException('Guardia no encontrado');
     await this.assertAccess(user, guard.companyId);
     return this.prisma.guard.update({ where: { id }, data: { deletedAt: new Date() } });
+  }
+
+  async reassign(user: AuthUser, id: string, body: { clientId: string; reason?: string }) {
+    const guard = await this.prisma.guard.findUnique({ where: { id } });
+    if (!guard || guard.deletedAt) throw new NotFoundException('Guardia no encontrado');
+    await this.assertAccess(user, guard.companyId);
+    if (!user.companyId) throw new BadRequestException('Sin empresa asociada');
+    const companyId: string = user.companyId;
+
+    const client = await this.prisma.client.findFirst({
+      where: { id: body.clientId, companyId: user.companyId, deletedAt: null },
+    });
+    if (!client) throw new BadRequestException('El cliente no existe o no pertenece a tu empresa');
+    if (guard.assignedClientId === client.id) {
+      throw new BadRequestException(`El guardia ya está asignado a ${client.commercialName || client.legalName}`);
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const shiftWhere: any = {
+      guardId: guard.id,
+      date: { gte: today },
+      status: 'programado',
+    };
+    if (guard.assignedClientId) {
+      shiftWhere.post = { site: { clientId: guard.assignedClientId } };
+    }
+
+    const futureShifts = await this.prisma.shift.findMany({
+      where: shiftWhere,
+      select: { id: true },
+    });
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const g = await tx.guard.update({
+        where: { id: guard.id },
+        data: { assignedClientId: client.id },
+        include: {
+          assignedClient: { select: { id: true, commercialName: true, legalName: true } },
+        },
+      });
+
+      await tx.guardAssignment.create({
+        data: {
+          companyId,
+          guardId: guard.id,
+          toClientId: client.id,
+          changedById: user.id,
+          reason: body.reason || 'Reasignación de cliente',
+          ...(guard.assignedClientId ? { fromClientId: guard.assignedClientId } : {}),
+        },
+      });
+
+      if (futureShifts.length > 0) {
+        await tx.shift.updateMany({
+          where: { id: { in: futureShifts.map((s) => s.id) } },
+          data: {
+            status: 'cancelado',
+            notes: `Cancelado por reasignación de cliente${body.reason ? `: ${body.reason}` : ''}`,
+          },
+        });
+      }
+
+      return g;
+    });
+
+    return {
+      ...updated,
+      cancelledShifts: futureShifts.length,
+      previousClientId: guard.assignedClientId,
+    };
+  }
+
+  async getAssignments(user: AuthUser, id: string) {
+    const guard = await this.prisma.guard.findUnique({ where: { id } });
+    if (!guard) throw new NotFoundException('Guardia no encontrado');
+    await this.assertAccess(user, guard.companyId);
+
+    return this.prisma.guardAssignment.findMany({
+      where: { guardId: id },
+      include: {
+        fromClient: { select: { id: true, commercialName: true, legalName: true } },
+        toClient: { select: { id: true, commercialName: true, legalName: true } },
+        changedBy: { select: { id: true, name: true, lastName: true } },
+      },
+      orderBy: { assignedAt: 'desc' },
+    });
   }
 
   async getDocuments(user: AuthUser, id: string) {

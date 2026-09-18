@@ -21,6 +21,20 @@ export class ShiftsService {
     return { shift, companyId: shift?.guard?.companyId ?? null };
   }
 
+  private async assertGuardClient(guard: { id: string; assignedClientId?: string | null }, targetClientId: string) {
+    if (!guard.assignedClientId) return;
+    if (guard.assignedClientId !== targetClientId) {
+      const current = await this.prisma.client.findUnique({
+        where: { id: guard.assignedClientId },
+        select: { commercialName: true, legalName: true },
+      });
+      const name = current?.commercialName || current?.legalName || '';
+      throw new BadRequestException(
+        `El guardia está asignado exclusivamente al cliente ${name.trim()} y no puede cubrir puestos de otro cliente. Reasígnalo primero si debe cambiar.`,
+      );
+    }
+  }
+
   async findAll(user: AuthUser, query: { date?: string; postId?: string; guardId?: string; status?: string }) {
     const where: any = { guard: { companyId: user.companyId, deletedAt: null } };
     if (query.date) where.date = new Date(query.date);
@@ -135,10 +149,12 @@ export class ShiftsService {
 
     const post = await this.prisma.post.findUnique({
       where: { id: body.postId },
-      include: { site: { include: { client: { select: { companyId: true } } } } },
+      include: { site: { include: { client: { select: { companyId: true, id: true } } } } },
     });
     if (!post) throw new NotFoundException('Puesto no encontrado');
     if (post.site.client.companyId !== user.companyId) throw new ForbiddenException('Acceso denegado');
+
+    await this.assertGuardClient(guard, post.site.clientId);
 
     await this.validateNoConflict(body.guardId, body.date, body.startTime, body.endTime, null);
 
@@ -212,6 +228,19 @@ export class ShiftsService {
     const { shift, companyId } = await this.resolveShiftCompany(id);
     if (!shift) throw new NotFoundException('Turno no encontrado');
     await this.assertAccess(user, companyId);
+
+    if (body.guardId || body.postId) {
+      const guard = await this.prisma.guard.findUnique({
+        where: { id: body.guardId || shift.guardId },
+        select: { id: true, assignedClientId: true },
+      });
+      const postId = body.postId || shift.postId;
+      const post = await this.prisma.post.findUnique({
+        where: { id: postId },
+        include: { site: { select: { clientId: true } } },
+      });
+      if (guard && post) await this.assertGuardClient(guard, post.site.clientId);
+    }
 
     if ((body.startTime || body.endTime || body.date || body.guardId) && shift.status !== 'cancelado') {
       const startTime = body.startTime || shift.startTime;

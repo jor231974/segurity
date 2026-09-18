@@ -2,7 +2,7 @@
 
 Sistema Integral Web para Empresas de Seguridad Privada â€” Grupo Servicom
 
-Ãšltima actualizaciÃ³n: 2026-09-18 (MÃ³dulo GUARDIA revisado de punta a punta y ajustado para operaciÃ³n real con guardias de baja tecnologÃ­a: validaciones de asistencia, redirecciÃ³n por rol, menÃº filtrado por permisos y soporte de turnos nocturnos. E2E 25/25 local y producciÃ³n. Despliegue en producciÃ³n: API y Web en vivo en Render.)
+Ãšltima actualizaciÃ³n: 2026-09-18 (AsignaciÃ³n exclusiva de guardias a cliente con reasignaciÃ³n controlada y cancelaciÃ³n de turnos futuros. E2E 33/33 local. MÃ³dulo GUARDIA revisado de punta a punta para operaciÃ³n real; web/API en producciÃ³n.)
 
 ---
 
@@ -222,6 +222,20 @@ NOTA: La columna "backend" indica que la API REST estÃ¡ implementada y funcion
 3. Demo/presentaciÃ³n final con los 4 perfiles (admin, supervisor, guardia, cliente) usando las cuentas demo del seed.
 3. Video operativo desplegado (grabación con expiración 48h, live viewer MSE, evidencia, URL firmada, auditoría). Pendiente optativo: mediaserver dedicado (mediasoup/Janus) para multicast eficiente cuando haya infraestructura.
 4. Mantenimiento: revisar dependencias (npm audit) y respaldos de BD + `VIDEO_STORAGE_PATH` en producciÃ³n.
+
+### AsignaciÃ³n exclusiva de guardia a cliente (2026-09-18)
+
+- **Regla de negocio (confirmada por el propietario):** cada guardia queda ligado EXCLUSIVAMENTE a un cliente de tu empresa de seguridad, con reasignaciÃ³n controlada a otro cliente.
+- **Schema:** `Guard.assignedClientId` (FK a Client, opcional, indexado) + nuevo modelo `GuardAssignment` (historial de asignaciones: de-client, a-client, motivo, usuario, fecha, empresa).
+- **Backend (`guards.service.ts`):**
+  - `POST /guards` acepta `assignedClientId` + `assignmentReason` (valida que el cliente sea de tu empresa) y registra la asignaciÃ³n inicial.
+  - `POST /guards/:id/reassign` (permiso `guards.edit`): transacciÃ³n que actualiza el cliente, registra el historial y **cancela los turnos futuros** (`status=programado`, fecha >= hoy) del cliente anterior.
+  - `GET /guards/:id/assignments`: historial completo (clientes origen/destino + responsable).
+  - `findAll`/`findOne` devuelven ahora el cliente asignado (`assignedClient`).
+- **Backend (`shifts.service.ts`):** al crear o actualizar un turno valida la regla de exclusividad — si el guardia estÃ¡ asignado a un cliente, SOLO puede cubrir puestos de ese cliente (`400` con mensaje claro si intenta otro).
+- **Frontend (`/guards`):** columna "Cliente asignado" en la tabla, selector de cliente en el alta (con aviso de exclusividad), botÃ³n "Reasignar" por fila con modal (cliente destino + motivo + aviso de cancelaciÃ³n de turnos futuros).
+- **Pruebas:** nuevo `apps/api/test/guard-assignment.e2e-spec.ts` (8 tests: exclusividad bloqueada, turno vÃ¡lido en su cliente, reasignaciÃ³n cancela futuros, turno vÃ¡lido tras reasignar, historial registrado). Suite E2E total **33/33** local.
+- **`packages/shared/schemas.ts`:** `guardSchema` + `guardAssignSchema` actualizados.
 
 ### MÃ³dulo GUARDIA ajustado para operaciÃ³n real (2026-09-18)
 

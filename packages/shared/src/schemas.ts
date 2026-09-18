@@ -145,6 +145,13 @@ export const guardSchema = z.object({
   status: z.enum(['activo', 'suspendido', 'vacaciones', 'baja', 'incapacidad', 'disponible', 'asignado']).default('disponible'),
   zoneId: z.string().uuid().optional(),
   supervisorId: z.string().uuid().optional(),
+  assignedClientId: z.string().uuid('Cliente asignado inválido').optional(),
+  assignmentReason: z.string().optional(),
+});
+
+export const guardAssignSchema = z.object({
+  clientId: z.string().uuid('Cliente inválido'),
+  reason: z.string().optional(),
 });
 
 export const guardDocumentSchema = z.object({
