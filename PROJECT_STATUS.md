@@ -2,7 +2,7 @@
 
 Sistema Integral Web para Empresas de Seguridad Privada â€” Grupo Servicom
 
-Ãšltima actualizaciÃ³n: 2026-09-18 (Despliegue en producciÃ³n: API y Web en vivo en Render, seed de datos demo ejecutÃ¡ndose en el arranque, login y Swagger verificados)
+Ãšltima actualizaciÃ³n: 2026-09-18 (MÃ³dulo GUARDIA revisado de punta a punta y ajustado para operaciÃ³n real con guardias de baja tecnologÃ­a: validaciones de asistencia, redirecciÃ³n por rol, menÃº filtrado por permisos y soporte de turnos nocturnos. E2E 25/25 local y producciÃ³n. Despliegue en producciÃ³n: API y Web en vivo en Render.)
 
 ---
 
@@ -31,7 +31,7 @@ Sistema Integral Web para Empresas de Seguridad Privada â€” Grupo Servicom
 | BLOQUE 19 | Reportes | TERMINADO (backend) |
 | BLOQUE 20 | AuditorÃ­a y seguridad avanzada | TERMINADO (backend) |
 | BLOQUE 21 | OptimizaciÃ³n | TERMINADO (UX comercial completa) |
-| BLOQUE 22 | Pruebas integrales | TERMINADO (E2E automatizadas 17/17) |
+| BLOQUE 22 | Pruebas integrales | TERMINADO (E2E automatizadas 25/25) |
 | BLOQUE 23 | PreparaciÃ³n para producciÃ³n | TERMINADO (builds prod, .env, health, scripts, deploy verificado) |
 | BLOQUE 24 | DocumentaciÃ³n y entrega | TERMINADO (README, DEPLOYMENT actualizado, estado del proyecto) |
 
@@ -217,17 +217,32 @@ NOTA: La columna "backend" indica que la API REST estÃ¡ implementada y funcion
 
 ## Siguientes pasos inmediatos (Next Move)
 
-1. **DEMO EN PRODUCCIÃ“N ACTIVA (2026-09-18):** API https://servicom-api.onrender.com y Web https://servicom-web.onrender.com en vivo en Render. Health `/api/health` OK, Swagger `/docs` (136 rutas), login verificado con las 5 cuentas demo del seed:
-   - `admin@gruposervicom.com` / `Admin123!` (Empresa A)
-   - `supervisor@gruposervicom.com` / `Supervisor123!`
-   - `guardia@gruposervicom.com` / `Guardia123!`
-   - `cliente@abccorp.com` / `Cliente123!` (portal cliente)
-   - `admin@prototal.com` / `Admin123!` (Empresa B)
-2. Demo/presentaciÃ³n final con los 4 perfiles (admin, supervisor, guardia, cliente) usando las cuentas demo del seed.
+1. **DEMO EN PRODUCCIÃ“N ACTIVA (2026-09-18):** API https://servicom-api.onrender.com y Web https://servicom-web.onrender.com en vivo en Render. Health `/api/health` OK, Swagger `/docs` (136 rutas), login verificado con las 5 cuentas demo del seed. E2E automatizado 25/25 contra producciÃ³n (`E2E_API_URL=https://servicom-api.onrender.com/api`). MÃ³dulo GUARDIA ajustado para operaciÃ³n real (validaciones de asistencia, turnos nocturnos, redirecciÃ³n por rol, menÃº por permisos, UX PWA simplificada).
+2. RevisiÃ³n funcional pendiente mÃ³dulo por mÃ³dulo (siguiente tras GUARDIA: Empresa â†' Cliente â†' Contrato â†' Servicio â†' InstalaciÃ³n â†' Puesto â†' ...). Espera confirmaciÃ³n del propietario antes de continuar.
+3. Demo/presentaciÃ³n final con los 4 perfiles (admin, supervisor, guardia, cliente) usando las cuentas demo del seed.
 3. Video operativo desplegado (grabación con expiración 48h, live viewer MSE, evidencia, URL firmada, auditoría). Pendiente optativo: mediaserver dedicado (mediasoup/Janus) para multicast eficiente cuando haya infraestructura.
 4. Mantenimiento: revisar dependencias (npm audit) y respaldos de BD + `VIDEO_STORAGE_PATH` en producciÃ³n.
 
-### MËDULO DE VIDEO OPERATIVO (2026-09-18)
+### MÃ³dulo GUARDIA ajustado para operaciÃ³n real (2026-09-18)
+
+- **Estado:** REVISADO Y DESPLEGADO. Enfoque: guardia con poca experiencia tecnolÃ³gica â†' operaciÃ³n simple, confiable y con mensajes claros. E2E 25/25 local y contra producciÃ³n.
+- **Validaciones de asistencia (backend, `attendance.service.ts`):**
+  - Doble entrada del dÃ­a rechazada ("Ya registraste tu entrada hoy").
+  - Salida sin entrada previa rechazada ("Primero debes registrar tu entrada").
+  - Doble salida del dÃ­a rechazada ("Ya registraste tu salida hoy").
+  - Guardia con status `baja`/`suspendido` no puede marcar asistencia.
+  - Sin turno asignado para hoy no puede marcar asistencia.
+  - Al registrar entrada el turno pasa a `activo`; al registrar salida pasa a `completado` (transacciÃ³n `$transaction`).
+- **Soporte de turnos nocturnos que cruzan medianoche:** nuevo helper compartido `apps/api/src/common/utils/shift.ts` (`findCurrentShift`) — si el turno de hoy no existe, busca el turno nocturno del dÃ­a anterior (endTime â‰¤ startTime) aÃºn en curso. Usado en `attendance`, `gps` (ping) y `dashboard` (guard-hub).
+- **UX simplificada para el guardia:**
+  - Login redirige por rol: GUARD â†' `/m`, CLIENT â†' `/portal`, resto â†' `/`. El dashboard escribe `/` redirige a `/m` para el guardia (ya no ve paneles de administraciÃ³n).
+  - MenÃº lateral filtrado por permisos reales: NAV_ITEMS mapean a `PERMISSIONS` de `@servicom/shared` y solo se muestran si el usuario los tiene (SUPER_ADMIN bypass). El guardia ya no ve el menÃº amplio.
+  - PWA `/m`: el enlace "Escritorio" solo aparece con permiso `DASHBOARD_VIEW`; botones de entrada/salida deshabilitados segÃºn estado del dÃ­a; mensajes claros en espaÃ±ol ("Tu entrada quedÃ³ registrada. Â¡Buen turno!", "EstÃ¡s dentro de la zona de tu puesto. Todo en orden.", "No tienes un turno asignado para hoy. Pregunta a tu supervisor."); avisos por fuera de horario, salida anticipada o fuera de geocerca.
+- **Pruebas:** nuevo `apps/api/test/attendance.e2e-spec.ts` (8 casos: entrada vÃ¡lida + turno activo, doble entrada, salida + turno completado, doble salida, salida sin entrada, suspendido, sin turno). Suite E2E completa: **25/25** (flow 10 + security 7 + attendance 8) verificada localmente y contra la API de producciÃ³n.
+- **Desplegado en Render:** commit `5e6803c`, deploys API y Web en vivo, `/api/health` OK, `/m` 200.
+- **Decisiones tomadas:** la polÃ­tica de geocerca sigue "permite con aviso" (no bloquea la marcaciÃ³n); NO se aÃ±adiÃ³ flujo de cambio de contraseÃ±a (la UI no forzaba `mustChangePassword` y no existe pÃ¡gina de cambio; el backend ya devuelve el indicador). El campo `address` sigue siendo obligatorio en `POST /guards`.
+
+### MÃ³dulo de VIDEO OPERATIVO (2026-09-18)
 
 - **Estado:** DESPLEGADO EN PRODUCCIÓN. Backend + web + PWA + pruebas E2E 17/17.
 - **Backend reescrito** (`apps/api/src/modules/video/`): config del dispositivo, streams,
