@@ -21,7 +21,7 @@ services:
     plan: free
     region: oregon
     buildCommand: npm ci --include=dev --no-audit --no-fund && npm run build --workspace @servicom/shared && npx prisma generate --schema apps/api/prisma/schema.prisma && npm run build --workspace @servicom/api
-    startCommand: npx prisma migrate deploy --schema apps/api/prisma/schema.prisma && npm run prisma:seed --workspace @servicom/api && npm run start:prod --workspace @servicom/api
+    startCommand: npx prisma migrate deploy --schema apps/api/prisma/schema.prisma && npm run prisma:seed --workspace @servicom/api && npm run prisma:demo --workspace @servicom/api && npm run start:prod --workspace @servicom/api
     envVars:
       - key: NODE_ENV
         value: production
