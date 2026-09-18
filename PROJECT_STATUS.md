@@ -224,10 +224,33 @@ NOTA: La columna "backend" indica que la API REST estÃ¡ implementada y funcion
    - `cliente@abccorp.com` / `Cliente123!` (portal cliente)
    - `admin@prototal.com` / `Admin123!` (Empresa B)
 2. Demo/presentaciÃ³n final con los 4 perfiles (admin, supervisor, guardia, cliente) usando las cuentas demo del seed.
-3. Pendiente tÃ©cnico de video: mediaserver para streaming en vivo multicÃ¡mara (alternativa: mediasoup/Janus) cuando haya infraestructura.
+3. Video operativo desplegado (grabación con expiración 48h, live viewer MSE, evidencia, URL firmada, auditoría). Pendiente optativo: mediaserver dedicado (mediasoup/Janus) para multicast eficiente cuando haya infraestructura.
 4. Mantenimiento: revisar dependencias (npm audit) y respaldos de BD + `VIDEO_STORAGE_PATH` en producciÃ³n.
 
-## Despliegue en producciÃ³n (Render, 2026-09-18)
+### MËDULO DE VIDEO OPERATIVO (2026-09-18)
+
+- **Estado:** DESPLEGADO EN PRODUCCIÓN. Backend + web + PWA + pruebas E2E 17/17.
+- **Backend reescrito** (`apps/api/src/modules/video/`): config del dispositivo, streams,
+  fragmentos idempotentes por `seq`, manifest para live viewer, `end` → concatenación
+  a WebM + grabación con expiración 48h, conserver como evidencia, URL firmada
+  (descarga pública con firma HMAC, TTL 60 min), auditoría (`VideoAuditLog`,
+  `VideoDownloadLog`), cron cada hora de expiración automática. Almacenamiento de
+  objetos: driver local operativo, driver S3 documentado para producción.
+- **Schema**: modelos `VideoFragment` (unique streamId+seq), `VideoAuditLog`; campos
+  de contexto (service/post/site/client), config y evidencia en `VideoStream` y
+  `VideoRecording`. Migración `20260918153104_video_operativo` aplicada local.
+- **Permisos**: `VIDEO_EVIDENCE_PRESERVE` añadido (DIRECTOR, ADMIN, OPS, SUPERVISOR);
+  permiso de descarga y delete para admin. Seed actualizado (94 permisos).
+- **Frontend**: PWA `/m/video` con `getUserMedia` + MediaRecorder `timeslice`,
+  cola offline IndexedDB (`lib/idb-video.ts`), GPS, upload de fragmentos numerados;
+  `/video` (admin) con live viewer (MediaSource + LivePlayer), grabaciones con
+  ver/descargar/evidencia/auditoría/eliminar. Web compilada y desplegada.
+- **`render.yaml`**: envs de video (resolución, fps, bitrate, audio, fragmento,
+  duración, MIME, TTL de firmas, expiración 48h).
+- Documentación completa: `VIDEO_MODULE.md` (arquitectura, API, permisos, costos,
+  almacenamiento, procedimiento de prueba Android).
+
+## Despliegue en producción (Render, 2026-09-18)
 
 - **API:** https://servicom-api.onrender.com — salud `/api/health`, Swagger `/docs` (OpenAPI 3.0, 136 endpoints), CORS habilitado para la Web.
 - **Web:** https://servicom-web.onrender.com — Next.js exportado estÃ¡tico + `serve`, PWA (`/manifest.json`), login en `/login`, dashboard en `/`.
