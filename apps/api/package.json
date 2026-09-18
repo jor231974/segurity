@@ -15,6 +15,7 @@
     "prisma:migrate": "prisma migrate dev --name init",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "ts-node --transpile-only prisma/seed.ts",
+    "prisma:demo": "ts-node --transpile-only prisma/demo-data.ts",
     "prisma:studio": "prisma studio"
   },
   "dependencies": {

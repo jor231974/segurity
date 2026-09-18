@@ -2,7 +2,7 @@
 
 Sistema Integral Web para Empresas de Seguridad Privada â€” Grupo Servicom
 
-Ãšltima actualizaciÃ³n: 2026-09-18 (Bloque comercial revisado de punta a punta: cerrado el gap crÃ­tico de aislamiento en ContractService, validaciones backend en clientes/contratos/instalaciones/puestos, alta web corregida. E2E 40/40 local. MÃ³dulo GUARDIA y asignaciÃ³n exclusiva de guardias desplegados en producciÃ³n.)
+Ãšltima actualizaciÃ³n: 2026-09-18 (Fase A — cartera demo de presentaciÃ³n + playbook. E2E 40/40 local y contra producciÃ³n.)
 
 ---
 
@@ -300,3 +300,20 @@ NOTA: La columna "backend" indica que la API REST estÃ¡ implementada y funcion
   - Almacenamiento de archivos en `/opt/render/project/src/data/{storage,videos}` (paths `/var/data` no escribibles en Render free).
   - Demo multiempresa: Empresa A (Grupo Servicom) y Empresa B (ProTotal Norte) aisladas por `companyId` (prueba de aislamiento pendiente de ejecutar contra producciÃ³n).
 - **Cuentas y credenciales de infra:** la API key de Render y el token de GitHub usados para desplegar deben **revocarse/rotarse** al terminar la presentaciÃ³n; el repositorio puede volverse privado (Render conserva acceso a los repos pÃºblicos por URL).
+
+### Fase A - Datos de presentaciÃ³n (2026-09-18)
+
+- **Script nuevo** `apps/api/prisma/demo-data.ts` (npm `prisma:demo` / root `db:demo`): carga idempotente (upsert por clave Ãºnica; no borra ni modifica nada; fechas fijas 2025 para no desplazar a ABC Corp ni a los datos E2E de la primera pÃ¡gina). Ejecutado contra la BD local de la Empresa A.
+- **Cartera demo (4 clientes en 4 estados):** Almacenes del Norte (Monterrey, NL), Plaza VÃ­a Dorada (Zapopan, JAL), Hospital San Rafael (CDMX) y Metal MecÃ¡nica BajÃ­o (QuerÃ©taro) — cada uno con contacto, contrato activo, servicio con tarifa/costo, instalaciÃ³n con geocerca y 2 puestos.
+- **Guardias demo (9):** GU-101..GU-402 creados como "asignado" con `assignedClientId` exclusivo por cliente + historial `GuardAssignment` (asignaciÃ³n inicial). Turnos de hoy (9) programados **solo en puestos del cliente asignado** (regla de exclusividad respetada por el script).
+- **Inventario demo:** 6 artÃ­culos (radios, chalecos, lÃ¡mparas, cÃ¡mara, uniforme, celular) + 5 asignaciones activas a guardias.
+- **VerificaciÃ³n:** E2E local **40/40** tras la carga (la suite crea + aÃ±ade sus propios datos, la exclusividad y el aislamiento comercial se mantienen). Consulta por API: los 9 guardias demo aparecen con su cliente asignado; los turnos de hoy apuntan a los puestos demo.
+- **Playbook de presentaciÃ³n** creado: `PLAYBOOK.md` (30-40 min, carteras demo por estado para escenario "una sola empresa con mÃºltiples clientes").
+
+### Estado pendiente (Fase B/C recomendada)
+- MÃ³dulo formal de vacaciones/permisos (solo `Guard.status="vacaciones"` + faltas en pre-nÃ³mina).
+- Notificaciones reales: push mÃ³vil (WebPush/FCM) + correo SMTP.
+- CatÃ¡logo Estados de MÃ©xico (hoy los sitios usan estados como texto libre).
+- CFDI 4.0 ante SAT + nÃ³mina timbrada (Facturapi/SUMA).
+- Pantalla web de "Empresas" (omitiÃ©ndose: se opera una sola empresa de seguridad; se documentÃ³ la decisiÃ³n).
+- Backups automÃ¡ticos de la BD, streaming en vivo multicÃ¡mara, versiÃ³n final del video con geocerca en portal cliente.
