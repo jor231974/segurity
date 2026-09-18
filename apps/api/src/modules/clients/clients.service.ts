@@ -13,10 +13,18 @@ export class ClientsService {
     }
   }
 
+  private static readonly CLIENT_STATUSES = ['activo', 'inactivo', 'suspendido'];
+
+  private static assertValidStatus(status: string | undefined, statuses: string[], label: string) {
+    if (status && !statuses.includes(status)) {
+      throw new BadRequestException(`${label} inválido`);
+    }
+  }
+
   async findAll(user: AuthUser, query: { page: string; limit: string; search?: string; status?: string }) {
     const page = parseInt(query.page) || 1;
     const limit = parseInt(query.limit) || 20;
-    const where: any = { companyId: user.companyId, deletedAt: null };
+    const where: any = { companyId: user.companyId ?? undefined, deletedAt: null };
 
     if (query.search?.trim()) {
       where.OR = [
@@ -63,6 +71,7 @@ export class ClientsService {
     if (!body.legalName?.trim() || !body.commercialName?.trim()) {
       throw new BadRequestException('legalName y commercialName son obligatorios');
     }
+    ClientsService.assertValidStatus(body.status, ClientsService.CLIENT_STATUSES, 'status');
     const rfcExists = body.rfc
       ? await this.prisma.client.findFirst({
           where: { companyId: user.companyId, rfc: body.rfc, deletedAt: null },
@@ -94,6 +103,14 @@ export class ClientsService {
     const client = await this.prisma.client.findUnique({ where: { id } });
     if (!client || client.deletedAt) throw new NotFoundException('Cliente no encontrado');
     await this.assertAccess(user, client.companyId);
+    ClientsService.assertValidStatus(body.status, ClientsService.CLIENT_STATUSES, 'status');
+
+    if (body.rfc) {
+      const rfcExists = await this.prisma.client.findFirst({
+        where: { companyId: client.companyId, rfc: body.rfc, deletedAt: null, id: { not: id } },
+      });
+      if (rfcExists) throw new BadRequestException('Ya existe un cliente con ese RFC');
+    }
 
     return this.prisma.client.update({
       where: { id },
@@ -137,10 +154,10 @@ export class ClientsService {
 
   async getContracts(user: AuthUser, id: string) {
     const client = await this.prisma.client.findUnique({ where: { id } });
-    if (!client) throw new NotFoundException('Cliente no encontrado');
+    if (!client || client.deletedAt) throw new NotFoundException('Cliente no encontrado');
     await this.assertAccess(user, client.companyId);
     return this.prisma.contract.findMany({
-      where: { clientId: id },
+      where: { clientId: id, deletedAt: null },
       include: { services: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -148,7 +165,7 @@ export class ClientsService {
 
   async getSites(user: AuthUser, id: string) {
     const client = await this.prisma.client.findUnique({ where: { id } });
-    if (!client) throw new NotFoundException('Cliente no encontrado');
+    if (!client || client.deletedAt) throw new NotFoundException('Cliente no encontrado');
     await this.assertAccess(user, client.companyId);
     return this.prisma.site.findMany({
       where: { clientId: id, deletedAt: null },
@@ -159,7 +176,7 @@ export class ClientsService {
 
   async addContact(user: AuthUser, id: string, body: any) {
     const client = await this.prisma.client.findUnique({ where: { id } });
-    if (!client) throw new NotFoundException('Cliente no encontrado');
+    if (!client || client.deletedAt) throw new NotFoundException('Cliente no encontrado');
     await this.assertAccess(user, client.companyId);
     if (!body.name) throw new BadRequestException('Nombre del contacto requerido');
     return this.prisma.clientContact.create({

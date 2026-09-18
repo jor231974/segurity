@@ -44,6 +44,22 @@ export class PostsService {
     return post;
   }
 
+  private static readonly TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+  private static assertValidTime(value: any, label: string) {
+    if (!PostsService.TIME_RE.test(value)) {
+      throw new BadRequestException(`${label} inválido (formato HH:mm)`);
+    }
+  }
+
+  private static coerceBoolean(value: any, fallback: boolean): boolean {
+    if (value === undefined || value === null || value === '') return fallback;
+    if (typeof value === 'boolean') return value;
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return Boolean(value);
+  }
+
   async create(user: AuthUser, body: any) {
     const site = await this.prisma.site.findUnique({
       where: { id: body.siteId },
@@ -52,9 +68,9 @@ export class PostsService {
     if (!site || site.deletedAt) throw new NotFoundException('Instalación no encontrada');
     await this.assertAccess(user, site.client.companyId);
 
-    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(body.shiftStart) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(body.shiftEnd)) {
-      throw new BadRequestException('Horarios inválidos (formato HH:mm)');
-    }
+    if (!body.name?.trim()) throw new BadRequestException('name es obligatorio');
+    PostsService.assertValidTime(body.shiftStart, 'shiftStart');
+    PostsService.assertValidTime(body.shiftEnd, 'shiftEnd');
 
     return this.prisma.post.create({
       data: {
@@ -62,7 +78,7 @@ export class PostsService {
         name: body.name,
         shiftStart: body.shiftStart,
         shiftEnd: body.shiftEnd,
-        active: body.active ?? true,
+        active: PostsService.coerceBoolean(body.active, true),
       },
     });
   }
@@ -72,13 +88,17 @@ export class PostsService {
     if (!post) throw new NotFoundException('Puesto no encontrado');
     await this.assertAccess(user, companyId);
 
+    if (body.name !== undefined && !body.name?.trim()) throw new BadRequestException('name no puede quedar vacío');
+    if (body.shiftStart) PostsService.assertValidTime(body.shiftStart, 'shiftStart');
+    if (body.shiftEnd) PostsService.assertValidTime(body.shiftEnd, 'shiftEnd');
+
     return this.prisma.post.update({
       where: { id },
       data: {
         ...(body.name && { name: body.name }),
         ...(body.shiftStart && { shiftStart: body.shiftStart }),
         ...(body.shiftEnd && { shiftEnd: body.shiftEnd }),
-        ...(body.active !== undefined && { active: body.active }),
+        ...(body.active !== undefined && { active: PostsService.coerceBoolean(body.active, post.active) }),
       },
     });
   }

@@ -33,6 +33,7 @@ const FIELDS: Field[] = [
     options: [
       { label: 'Activo', value: 'activo' },
       { label: 'Inactivo', value: 'inactivo' },
+      { label: 'Suspendido', value: 'suspendido' },
     ],
   },
 ];

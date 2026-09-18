@@ -23,9 +23,10 @@ const FIELDS: Field[] = [
   { name: 'clientId', label: 'Cliente', type: 'select', required: true },
   { name: 'name', label: 'Nombre del sitio', required: true },
   { name: 'address', label: 'Dirección', type: 'textarea', required: true },
-  { name: 'latitude', label: 'Latitud', type: 'number' },
-  { name: 'longitude', label: 'Longitud', type: 'number' },
-  { name: 'geofenceRadiusMeters', label: 'Radio de geocerca (m)', type: 'number' },
+  { name: 'latitude', label: 'Latitud (-90 a 90)', type: 'number' },
+  { name: 'longitude', label: 'Longitud (-180 a 180)', type: 'number' },
+  { name: 'geofenceRadiusMeters', label: 'Radio de geocerca (m, 10–5000)', type: 'number' },
+  { name: 'schedule', label: 'Horario del sitio' },
   { name: 'contactName', label: 'Contacto' },
   { name: 'contactPhone', label: 'Teléfono de contacto' },
   { name: 'instructions', label: 'Instrucciones', type: 'textarea' },
@@ -37,7 +38,7 @@ export default function SitesPage() {
   const [clients, setClients] = useState<{ id: string; label: string }[]>([]);
 
   useEffect(() => {
-    apiFetch<any>('/clients?pageSize=100')
+    apiFetch<any>('/clients?limit=100')
       .then((res: any) => {
         const rows = res?.items ?? (Array.isArray(res) ? res : []);
         setClients(rows.map((c: any) => ({ id: c.id, label: c.commercialName || c.legalName })));

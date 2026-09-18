@@ -45,9 +45,8 @@ const FIELDS: Field[] = [
     type: 'select',
     options: [
       { label: 'Activo', value: 'activo' },
-      { label: 'En revisión', value: 'en_revision' },
       { label: 'Suspendido', value: 'suspendido' },
-      { label: 'Terminado', value: 'terminado' },
+      { label: 'Cerrado', value: 'cerrado' },
     ],
   },
 ];
@@ -63,7 +62,7 @@ export default function ContractsPage() {
   const [clients, setClients] = useState<ClientOption[]>([]);
 
   useEffect(() => {
-    apiFetch<any>('/clients?pageSize=100')
+    apiFetch<any>('/clients?limit=100')
       .then((res: any) => {
         const rows = res?.items ?? (Array.isArray(res) ? res : []);
         setClients(rows.map((c: any) => ({ id: c.id, commercialName: c.commercialName || c.legalName })));

@@ -2,7 +2,7 @@
 
 Sistema Integral Web para Empresas de Seguridad Privada â€” Grupo Servicom
 
-Ãšltima actualizaciÃ³n: 2026-09-18 (AsignaciÃ³n exclusiva de guardias a cliente con reasignaciÃ³n controlada y cancelaciÃ³n de turnos futuros. E2E 33/33 local. MÃ³dulo GUARDIA revisado de punta a punta para operaciÃ³n real; web/API en producciÃ³n.)
+Ãšltima actualizaciÃ³n: 2026-09-18 (Bloque comercial revisado de punta a punta: cerrado el gap crÃ­tico de aislamiento en ContractService, validaciones backend en clientes/contratos/instalaciones/puestos, alta web corregida. E2E 40/40 local. MÃ³dulo GUARDIA y asignaciÃ³n exclusiva de guardias desplegados en producciÃ³n.)
 
 ---
 
@@ -13,8 +13,8 @@ Sistema Integral Web para Empresas de Seguridad Privada â€” Grupo Servicom
 | BLOQUE 1 | Infraestructura y arquitectura | TERMINADO (backend) |
 | BLOQUE 2 | Base de datos y multiempresa | TERMINADO (backend) |
 | BLOQUE 3 | AutenticaciÃ³n, usuarios y permisos | TERMINADO (backend) |
-| BLOQUE 4 | Clientes, contratos y servicios | TERMINADO (backend) |
-| BLOQUE 5 | Instalaciones, puestos y consignas | TERMINADO (backend) |
+| BLOQUE 4 | Clientes, contratos y servicios | TERMINADO (revisado 2026-09-18) |
+| BLOQUE 5 | Instalaciones, puestos y consignas | TERMINADO (revisado 2026-09-18) |
 | BLOQUE 6 | Guardias y expedientes | TERMINADO (backend) |
 | BLOQUE 7 | Turnos y programaciÃ³n | TERMINADO (backend) |
 | BLOQUE 8 | Asistencia, GPS y geocercas | TERMINADO (backend) |
@@ -31,7 +31,7 @@ Sistema Integral Web para Empresas de Seguridad Privada â€” Grupo Servicom
 | BLOQUE 19 | Reportes | TERMINADO (backend) |
 | BLOQUE 20 | AuditorÃ­a y seguridad avanzada | TERMINADO (backend) |
 | BLOQUE 21 | OptimizaciÃ³n | TERMINADO (UX comercial completa) |
-| BLOQUE 22 | Pruebas integrales | TERMINADO (E2E automatizadas 25/25) |
+| BLOQUE 22 | Pruebas integrales | TERMINADO (E2E automatizadas 40/40) |
 | BLOQUE 23 | PreparaciÃ³n para producciÃ³n | TERMINADO (builds prod, .env, health, scripts, deploy verificado) |
 | BLOQUE 24 | DocumentaciÃ³n y entrega | TERMINADO (README, DEPLOYMENT actualizado, estado del proyecto) |
 
@@ -222,6 +222,14 @@ NOTA: La columna "backend" indica que la API REST estÃ¡ implementada y funcion
 3. Demo/presentaciÃ³n final con los 4 perfiles (admin, supervisor, guardia, cliente) usando las cuentas demo del seed.
 3. Video operativo desplegado (grabación con expiración 48h, live viewer MSE, evidencia, URL firmada, auditoría). Pendiente optativo: mediaserver dedicado (mediasoup/Janus) para multicast eficiente cuando haya infraestructura.
 4. Mantenimiento: revisar dependencias (npm audit) y respaldos de BD + `VIDEO_STORAGE_PATH` en producciÃ³n.
+
+### Bloque comercial revisado (2026-09-18)
+
+- **Gap crÃ­tico de aislamiento cerrado:** `POST /contracts` (con `services`) y `POST /contracts/:id/services` ahora validan que el `siteId` del servicio pertenezca a la empresa del contrato **y al mismo cliente** (403 si es otra empresa, 400 si es otro cliente). Prueba E2E: la empresa A no puede ligar instalaciones de B ni viceversa.
+- **Validaciones backend (400 controlado, no 500):** clientes (RFC duplicado en update, enum de status), contratos (fechas vÃ¡lidas y en orden, nÃºmero Ãºnico en update, enums de status y de billingFrequency, tarifa/guardCount vÃ¡lidos en servicios), instalaciones (rangos de latitud/longitud y radio de geocerca 10–5000 m, coerciÃ³n numÃ©rica), puestos (nombre obligatorio, horarios HH:mm en create y update, coerciÃ³n booleana de `active`).
+- **Consistencia:** `clients.findAll` ya respeta SUPER_ADMIN (`?? undefined`); `getContracts`/`getSites`/`addContact`/`remove` ignoran clientes soft-deleted; `getPosts` filtra puestos activos; `getServices`/`getProfitability` filtran servicios inactivos y contratos no eliminados.
+- **Frontend corregido:** dropdown de clientes con `limit=100` (antes `pageSize` ignorado = solo 20); enum de estatus de contrato alineado (`activo`/`suspendido`/`cerrado`); cliente con estatus "Suspendido"; instalaciones con campo `schedule` y hints de rangos.
+- **Pruebas:** nuevo `apps/api/test/commercial.e2e-spec.ts` (7 tests: aislamiento ContractService, aislamiento por cliente, flujo vÃ¡lido con servicio, validaciones 400). Suite E2E total **40/40** local.
 
 ### AsignaciÃ³n exclusiva de guardia a cliente (2026-09-18)
 
